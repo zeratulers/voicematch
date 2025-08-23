@@ -1,0 +1,47 @@
+version: '3.8'
+
+services:
+  # 开发环境数据库
+  db:
+    image: mysql:8.0
+    container_name: voicematch_dev_db
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: voicematch123
+      MYSQL_DATABASE: voicematch_dev
+      MYSQL_USER: voicematch
+      MYSQL_PASSWORD: voicematch123
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_dev_data:/var/lib/mysql
+    networks:
+      - voicematch-dev-network
+    command: >
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_unicode_ci
+
+  # 开发环境 MinIO
+  minio:
+    image: minio/minio:latest
+    container_name: voicematch_dev_minio
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: voicematch
+      MINIO_ROOT_PASSWORD: voicematch123
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_dev_data:/data
+    networks:
+      - voicematch-dev-network
+    command: server /data --console-address ":9001"
+
+volumes:
+  mysql_dev_data:
+  minio_dev_data:
+
+networks:
+  voicematch-dev-network:
+    driver: bridge

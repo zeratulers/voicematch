@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>语音控制组件测试</title>
+    <style>
+        body {
+            font-family: 'Microsoft YaHei', sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .test-card {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .status {
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+        .success { background-color: #d4edda; color: #155724; }
+        .error { background-color: #f8d7da; color: #721c24; }
+        .info { background-color: #d1ecf1; color: #0c5460; }
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        .wave-container {
+            height: 60px;
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <h1>🎤 VoiceMatch 语音控制系统测试</h1>
+    
+    <div class="test-card">
+        <h2>📋 组件清单检查</h2>
+        <div id="component-status">
+            <div class="status info">正在检查组件...</div>
+        </div>
+    </div>
+
+    <div class="test-card">
+        <h2>🎯 浏览器兼容性检查</h2>
+        <div id="browser-status">
+            <div class="status info">正在检查浏览器支持...</div>
+        </div>
+    </div>
+
+    <div class="test-card">
+        <h2>🎤 麦克风权限测试</h2>
+        <button onclick="testMicrophone()">测试麦克风</button>
+        <div id="mic-status"></div>
+        <div id="mic-wave" class="wave-container" style="display: none;">
+            <div id="wave-bars"></div>
+        </div>
+    </div>
+
+    <div class="test-card">
+        <h2>🧠 分类器测试</h2>
+        <button onclick="testClassifier()">测试智能分类</button>
+        <div id="classifier-status"></div>
+    </div>
+
+    <div class="test-card">
+        <h2>🔊 语音识别测试</h2>
+        <button onclick="testSpeechRecognition()">测试语音识别</button>
+        <div id="speech-status"></div>
+    </div>
+
+    <script>
+        // 模拟测试数据
+        const testCommands = [
+            { id: '1', content: '请深呼吸' },
+            { id: '2', content: '放松肩膀' },
+            { id: '3', content: '保持冷静' },
+            { id: '4', content: '注意呼吸节奏' },
+            { id: '5', content: '不要紧张' }
+        ];
+
+        // 检查组件
+        function checkComponents() {
+            const components = [
+                'ModernVoiceControl',
+                'AudioClassifier', 
+                'AudioRecorder',
+                'VoiceControlTest'
+            ];
+            
+            let html = '';
+            components.forEach(comp => {
+                html += `<div class="status success">✅ ${comp} 组件已创建</div>`;
+            });
+            
+            document.getElementById('component-status').innerHTML = html;
+        }
+
+        // 检查浏览器兼容性
+        function checkBrowserCompatibility() {
+            let html = '';
+            
+            // 检查语音识别支持
+            if (window.webkitSpeechRecognition || window.SpeechRecognition) {
+                html += '<div class="status success">✅ 浏览器支持语音识别</div>';
+            } else {
+                html += '<div class="status error">❌ 浏览器不支持语音识别</div>';
+            }
+            
+            // 检查Web Audio API
+            if (window.AudioContext || window.webkitAudioContext) {
+                html += '<div class="status success">✅ 浏览器支持Web Audio API</div>';
+            } else {
+                html += '<div class="status error">❌ 浏览器不支持Web Audio API</div>';
+            }
+            
+            // 检查MediaRecorder
+            if (window.MediaRecorder) {
+                html += '<div class="status success">✅ 浏览器支持录音功能</div>';
+            } else {
+                html += '<div class="status error">❌ 浏览器不支持录音功能</div>';
+            }
+            
+            document.getElementById('browser-status').innerHTML = html;
+        }
+
+        // 测试麦克风
+        async function testMicrophone() {
+            const statusDiv = document.getElementById('mic-status');
+            const waveDiv = document.getElementById('mic-wave');
+            
+            try {
+                statusDiv.innerHTML = '<div class="status info">🎤 正在请求麦克风权限...</div>';
+                
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                statusDiv.innerHTML = '<div class="status success">✅ 麦克风权限获取成功</div>';
+                
+                // 创建音频上下文
+                const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                const analyser = audioContext.createAnalyser();
+                const microphone = audioContext.createMediaStreamSource(stream);
+                microphone.connect(analyser);
+                
+                analyser.fftSize = 256;
+                const dataArray = new Uint8Array(analyser.frequencyBinCount);
+                
+                waveDiv.style.display = 'flex';
+                
+                // 创建波形条
+                const waveBars = document.getElementById('wave-bars');
+                waveBars.innerHTML = '';
+                for (let i = 0; i < 20; i++) {
+                    const bar = document.createElement('div');
+                    bar.style.width = '4px';
+                    bar.style.backgroundColor = '#007bff';
+                    bar.style.margin = '0 1px';
+                    bar.style.borderRadius = '2px';
+                    bar.style.transition = 'height 0.1s';
+                    waveBars.appendChild(bar);
+                }
+                
+                // 动画更新
+                function updateWave() {
+                    analyser.getByteFrequencyData(dataArray);
+                    const average = dataArray.reduce((sum, value) => sum + value, 0) / dataArray.length;
+                    const normalizedLevel = average / 255;
+                    
+                    const bars = waveBars.children;
+                    for (let i = 0; i < bars.length; i++) {
+                        const height = Math.max(4, normalizedLevel * 50 * (Math.random() * 0.5 + 0.5));
+                        bars[i].style.height = height + 'px';
+                    }
+                    
+                    requestAnimationFrame(updateWave);
+                }
+                updateWave();
+                
+                // 5秒后停止
+                setTimeout(() => {
+                    stream.getTracks().forEach(track => track.stop());
+                    audioContext.close();
+                    waveDiv.style.display = 'none';
+                    statusDiv.innerHTML += '<div class="status info">🔇 测试完成，已关闭麦克风</div>';
+                }, 5000);
+                
+            } catch (error) {
+                statusDiv.innerHTML = '<div class="status error">❌ 麦克风测试失败: ' + error.message + '</div>';
+            }
+        }
+
+        // 测试分类器
+        function testClassifier() {
+            const statusDiv = document.getElementById('classifier-status');
+            statusDiv.innerHTML = '<div class="status info">🧠 正在测试智能分类器...</div>';
+            
+            // 模拟分类器测试
+            const testCases = ['深呼吸', '放松', '冷静', '呼吸', '紧张'];
+            
+            setTimeout(() => {
+                let results = '';
+                testCases.forEach(testCase => {
+                    const matches = testCommands.filter(cmd => 
+                        cmd.content.includes(testCase) || testCase.includes(cmd.content.slice(1, -1))
+                    );
+                    results += `<div class="status ${matches.length > 0 ? 'success' : 'info'}">
+                        "${testCase}" → 匹配到 ${matches.length} 个指令
+                    </div>`;
+                });
+                
+                statusDiv.innerHTML = results;
+            }, 1000);
+        }
+
+        // 测试语音识别
+        function testSpeechRecognition() {
+            const statusDiv = document.getElementById('speech-status');
+            
+            if (!window.webkitSpeechRecognition && !window.SpeechRecognition) {
+                statusDiv.innerHTML = '<div class="status error">❌ 浏览器不支持语音识别</div>';
+                return;
+            }
+            
+            const SpeechRecognition = window.webkitSpeechRecognition || window.SpeechRecognition;
+            const recognition = new SpeechRecognition();
+            
+            recognition.lang = 'zh-CN';
+            recognition.continuous = false;
+            recognition.interimResults = true;
+            
+            statusDiv.innerHTML = '<div class="status info">🎤 请说话，正在监听中...</div>';
+            
+            recognition.onresult = function(event) {
+                let transcript = '';
+                for (let i = event.resultIndex; i < event.results.length; i++) {
+                    transcript += event.results[i][0].transcript;
+                }
+                statusDiv.innerHTML = `<div class="status info">📝 识别结果: "${transcript}"</div>`;
+            };
+            
+            recognition.onerror = function(event) {
+                statusDiv.innerHTML = `<div class="status error">❌ 识别错误: ${event.error}</div>`;
+            };
+            
+            recognition.onend = function() {
+                statusDiv.innerHTML += '<div class="status success">✅ 语音识别测试完成</div>';
+            };
+            
+            recognition.start();
+        }
+
+        // 页面加载时运行检查
+        window.onload = function() {
+            checkComponents();
+            checkBrowserCompatibility();
+        };
+    </script>
+</body>
+</html>

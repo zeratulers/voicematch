@@ -1,0 +1,7 @@
+# 忽略虚拟环境
+venv/
+
+# 忽略前端的 node_modules 目录
+frontend/node_modules/
+
+# 可根据需求，继续添加其他不想提交的文件或目录
