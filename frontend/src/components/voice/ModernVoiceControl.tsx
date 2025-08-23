@@ -16,6 +16,7 @@ import { Button } from '../ui/Button'
 import { AudioVisualizer } from 'react-audio-visualize'
 import annyang from 'annyang'
 import { AudioClassifier, type ClassificationResult } from './AudioClassifier'
+import { pinyin } from 'pinyin-pro'
 import '../../types/speech.d.ts'
 
 // 语音控制状态
@@ -51,6 +52,8 @@ interface ModernVoiceControlProps {
   wakeWords?: string[]
   enabled?: boolean
   className?: string
+  enableWakeWordPinyin?: boolean // 是否启用唤醒词拼音匹配
+  wakeWordPinyinThreshold?: number // 唤醒词拼音匹配阈值
 }
 
 const ModernVoiceControl: React.FC<ModernVoiceControlProps> = ({
@@ -59,9 +62,11 @@ const ModernVoiceControl: React.FC<ModernVoiceControlProps> = ({
   onStateChange,
   onTranscriptChange,
   onCommandPlayed,
-  wakeWords = ['发出指令', '播放指令', '开始指令'],
+  wakeWords = ['发出指令', '播放指令', '开始指令', '测试拼音'],
   enabled = true,
-  className = ''
+  className = '',
+  enableWakeWordPinyin = true, // 默认启用拼音匹配
+  wakeWordPinyinThreshold = 0.6 // 默认拼音匹配阈值
 }) => {
   // 状态管理
   const [state, setState] = useState<VoiceControlState>('idle')
@@ -101,6 +106,62 @@ const ModernVoiceControl: React.FC<ModernVoiceControlProps> = ({
     onStateChange?.(newState)
     console.log(`🔄 语音控制状态: ${newState}`)
   }, [onStateChange])
+
+  // [NEW] 创建一个集中的、健壮的语音识别重启函数
+  const restartRecognition = useCallback(() => {
+    if (!isRecordingRef.current || !recognitionRef.current) {
+      console.log('🔄 跳过重启 - 不在录音状态或识别器未初始化');
+      return;
+    }
+
+    setIsRestarting(true);
+    console.log('🔄 准备重启语音识别...');
+
+    try {
+      recognitionRef.current.abort();
+      console.log('⏹️ 已中止旧的识别会话');
+    } catch (e) {
+      console.warn('中止识别会话时出错:', e);
+    }
+
+    setTimeout(() => {
+      if (isRecordingRef.current) {
+        try {
+          recognitionRef.current.start();
+          console.log('✅ 语音识别已成功重启');
+        } catch (error) {
+          console.error('❌ 重启语音识别失败:', error);
+        } finally {
+          setIsRestarting(false);
+        }
+      } else {
+        console.log('❌ 用户已停止录音，取消重启');
+        setIsRestarting(false);
+      }
+    }, 100);
+  }, []);
+
+  // [NEW] 创建一个专门用于重置到唤醒状态并重启监听的函数
+  const resetToAwakenedState = useCallback((message: string) => {
+    console.log(`⏰ 准备重置到 awakened 状态: ${message}`);
+    setTranscript(message);
+    setClassificationResults([]); // 清空之前的结果
+    updateState('awakened');
+
+    // 这是关键修复：重启语音识别以接收新指令
+    restartRecognition();
+
+    // 设置超时，如果长时间没收到指令，则返回 listening 状态
+    if (awakeTimeoutRef.current) clearTimeout(awakeTimeoutRef.current);
+    awakeTimeoutRef.current = setTimeout(() => {
+      if (stateRef.current === 'awakened') {
+        console.log('⏰ 长时间未收到指令，回到 listening 状态');
+        setTranscript('');
+        updateState('listening');
+        restartRecognition(); // 回到 listening 状态也需要重启
+      }
+    }, 30000);
+  }, [updateState, restartRecognition]);
 
   // 获取状态样式
   const getStateStyle = (currentState: VoiceControlState) => {
@@ -146,6 +207,77 @@ const ModernVoiceControl: React.FC<ModernVoiceControlProps> = ({
       playing: '播放指令完成'
     }
     return texts[currentState] || '未知状态'
+  }
+
+  // 文本转拼音（用于唤醒词匹配）
+  const textToPinyin = (text: string): string => {
+    try {
+      // 使用 pinyin-pro 库进行准确的拼音转换
+      const pinyinArray = pinyin(text, { 
+        toneType: 'none',  // 不带声调
+        type: 'array'      // 返回数组格式
+      })
+      
+      // 将拼音数组合并成字符串
+      return pinyinArray.join('').toLowerCase()
+    } catch (error) {
+      console.warn('拼音转换失败，使用原文本:', error)
+      // 如果拼音转换失败，返回原文本的小写形式
+      return text.toLowerCase()
+    }
+  }
+
+  // 计算两个拼音字符串的相似度
+  const calculatePinyinSimilarity = (pinyin1: string, pinyin2: string): number => {
+    if (pinyin1 === pinyin2) return 1.0
+    
+    const len1 = pinyin1.length
+    const len2 = pinyin2.length
+    
+    if (len1 === 0 || len2 === 0) return 0.0
+    
+    // 使用编辑距离计算相似度
+    const matrix = Array(len1 + 1).fill(null).map(() => Array(len2 + 1).fill(null))
+    
+    for (let i = 0; i <= len1; i++) matrix[i][0] = i
+    for (let j = 0; j <= len2; j++) matrix[0][j] = j
+    
+    for (let i = 1; i <= len1; i++) {
+      for (let j = 1; j <= len2; j++) {
+        const cost = pinyin1[i - 1] === pinyin2[j - 1] ? 0 : 1
+        matrix[i][j] = Math.min(
+          matrix[i - 1][j] + 1,      // 删除
+          matrix[i][j - 1] + 1,      // 插入
+          matrix[i - 1][j - 1] + cost // 替换
+        )
+      }
+    }
+    
+    const maxLen = Math.max(len1, len2)
+    return maxLen === 0 ? 1.0 : (maxLen - matrix[len1][len2]) / maxLen
+  }
+
+  // 检查唤醒词匹配（支持拼音匹配）
+  const checkWakeWordMatch = (transcript: string, wakeWord: string): { matched: boolean, similarity: number, matchType: 'exact' | 'pinyin' | 'none' } => {
+    // 1. 精确匹配
+    if (transcript.includes(wakeWord)) {
+      return { matched: true, similarity: 1.0, matchType: 'exact' }
+    }
+    
+    // 2. 拼音匹配（如果启用）
+    if (enableWakeWordPinyin) {
+      const transcriptPinyin = textToPinyin(transcript)
+      const wakeWordPinyin = textToPinyin(wakeWord)
+      
+      const similarity = calculatePinyinSimilarity(transcriptPinyin, wakeWordPinyin)
+      
+      if (similarity >= wakeWordPinyinThreshold) {
+        console.log(`🔤 拼音匹配: "${transcript}" -> "${wakeWord}" (相似度: ${(similarity * 100).toFixed(1)}%)`)
+        return { matched: true, similarity, matchType: 'pinyin' }
+      }
+    }
+    
+    return { matched: false, similarity: 0.0, matchType: 'none' }
   }
 
   // 初始化音频上下文
@@ -288,65 +420,25 @@ const ModernVoiceControl: React.FC<ModernVoiceControlProps> = ({
       })
       
       if (stateRef.current === 'listening' && fullTranscript) {
-        const matchedWord = wakeWords.find(word => {
-          const hasMatch = fullTranscript.includes(word)
-          console.log(`🔎 检查唤醒词 "${word}": ${hasMatch ? '匹配' : '不匹配'}`)
-          return hasMatch
-        })
+        // 使用新的拼音匹配逻辑检查唤醒词
+        let bestMatch: { word: string, similarity: number, matchType: 'exact' | 'pinyin' | 'none' } | null = null
         
-        if (matchedWord) {
-          console.log('🎯 检测到唤醒词:', matchedWord, '在文本:', fullTranscript)
-          updateState('awakened')
-          setTranscript('已唤醒，请说出指令...')
+        for (const word of wakeWords) {
+          const matchResult = checkWakeWordMatch(fullTranscript, word)
+          console.log(`🔎 检查唤醒词 "${word}": ${matchResult.matched ? '匹配' : '不匹配'} (类型: ${matchResult.matchType}, 相似度: ${(matchResult.similarity * 100).toFixed(1)}%)`)
           
-          // 播放提示音
+          if (matchResult.matched && (!bestMatch || matchResult.similarity > bestMatch.similarity)) {
+            bestMatch = { word, similarity: matchResult.similarity, matchType: matchResult.matchType }
+          }
+        }
+        
+        if (bestMatch) {
+          console.log(`🎯 检测到唤醒词: "${bestMatch.word}" (类型: ${bestMatch.matchType}, 相似度: ${(bestMatch.similarity * 100).toFixed(1)}%) 在文本: "${fullTranscript}"`)
           playNotificationSound('awakened')
           
-          // 停止当前识别，准备重新开始
-          if (recognitionRef.current) {
-            recognitionRef.current.stop()
-          }
-          
-          // 设置重启状态，防止onend事件重复启动
-          setIsRestarting(true)
-          
-          // 清除之前的超时
-          if (awakeTimeoutRef.current) {
-            clearTimeout(awakeTimeoutRef.current)
-            awakeTimeoutRef.current = null
-          }
-          
-          // 短暂延迟后重新开始识别，准备捕获指令内容
-          setTimeout(() => {
-            console.log('🔄 唤醒后重启识别，准备捕获指令内容')
-            setTranscript('') // 清除唤醒词文本
-            if (recognitionRef.current && isRecordingRef.current) {
-              try {
-                recognitionRef.current.start()
-                console.log('✅ 重启识别成功，等待指令内容')
-                setIsRestarting(false) // 重启完成
-                
-                // 设置超时，如果30秒内没有指令则回到监听状态
-                awakeTimeoutRef.current = setTimeout(() => {
-                  if (stateRef.current === 'awakened') {
-                    console.log('⏰ 超时未收到指令，回到监听状态')
-                    updateState('listening')
-                    setTranscript('')
-                  }
-                }, 30000) // 增加到30秒
-                
-              } catch (error) {
-                console.error('❌ 重启识别失败:', error)
-                setIsRestarting(false)
-                // 识别启动失败，回到监听状态
-                updateState('listening')
-              }
-            } else {
-              console.log('❌ 无法重启识别，recording:', isRecordingRef.current)
-              setIsRestarting(false)
-              updateState('listening')
-            }
-          }, 1500) // 增加延迟时间，确保状态稳定
+          // [REFACTORED] 直接调用 resetToAwakenedState
+          resetToAwakenedState('已唤醒，请说出指令...');
+          return; // 唤醒后，直接返回，等待下一次 onresult
         } else {
           console.log('❌ 没有匹配的唤醒词')
         }
@@ -368,7 +460,10 @@ const ModernVoiceControl: React.FC<ModernVoiceControlProps> = ({
         console.log('📝 处理awakened状态下的文本:', textToProcess)
         
         // 检查是否是新的语音内容（不包含唤醒词）
-        const hasWakeWord = wakeWords.some(word => textToProcess.includes(word))
+        const hasWakeWord = wakeWords.some(word => {
+          const matchResult = checkWakeWordMatch(textToProcess, word)
+          return matchResult.matched
+        })
         
         if (hasWakeWord) {
           console.log('⏸️ 检测到唤醒词，跳过处理（等待新的指令内容）')
@@ -382,7 +477,7 @@ const ModernVoiceControl: React.FC<ModernVoiceControlProps> = ({
             updateState('processing')
             setTranscript(`正在处理: "${commandText}"`)
             
-            // 停止当前识别
+            // 停止当前识别，准备处理
             if (recognitionRef.current) {
               recognitionRef.current.stop()
             }
@@ -402,33 +497,29 @@ const ModernVoiceControl: React.FC<ModernVoiceControlProps> = ({
       console.error('语音识别错误:', event.error)
     }
 
-    recognition.onend = () => {
-      console.log('🎤 语音识别结束，当前状态:', stateRef.current, '显示状态:', state, '录音中:', isRecordingRef.current, '重启中:', isRestartingRef.current)
-      
-      // 在 listening 状态下自动重启，playing 状态交给 executeCommand 处理
-      if (stateRef.current === 'listening' && isRecordingRef.current && !isRestartingRef.current) {
-        console.log('🔄 自动重启语音识别（listening状态）')
-        setTimeout(() => {
-          if (recognitionRef.current && isRecordingRef.current && !isRestartingRef.current) {
-            try {
-              recognitionRef.current.start()
-              console.log('✅ 语音识别重启成功')
-            } catch (error) {
-              console.error('❌ 重启语音识别失败:', error)
-            }
-          }
-        }, 100)
-      } else if (stateRef.current === 'playing') {
-        console.log('📀 playing状态下识别结束，由executeCommand负责重启')
-      } else if (stateRef.current === 'processing') {
-        console.log('🔄 processing状态下识别结束，由processCommandText负责重启')
-      } else {
-        console.log('⏸️ 跳过自动重启 - 状态:', stateRef.current, '录音中:', isRecordingRef.current, '重启中:', isRestartingRef.current)
-      }
-    }
+         // [REFACTORED] 简化 onend 逻辑
+     recognition.onend = () => {
+       console.log('🎤 语音识别结束', { 
+         state: stateRef.current, 
+         isRecording: isRecordingRef.current, 
+         isRestarting: isRestartingRef.current 
+       });
+       
+       // 只要还在录音模式，并且不是我们主动发起的重启，就尝试恢复
+       if (isRecordingRef.current && !isRestartingRef.current) {
+         console.log('🔄 识别意外结束，自动重启...');
+         // 这里直接调用 start，因为 abort 已经在 restartRecognition 中处理了
+         // 这是一个备用保险，主要的重启逻辑在其他地方
+         try {
+           recognitionRef.current.start();
+         } catch (e) {
+           console.error("❌ onend 中恢复失败", e);
+         }
+       }
+     };
 
-    return true
-  }, [state, wakeWords, isRecording, updateState, onTranscriptChange])
+         return true
+   }, [wakeWords, updateState, onTranscriptChange, checkWakeWordMatch, resetToAwakenedState]) // [MODIFIED] 更新依赖
 
   // 播放提示音
   const playNotificationSound = (type: 'start' | 'awakened' | 'error') => {
@@ -588,73 +679,39 @@ const ModernVoiceControl: React.FC<ModernVoiceControlProps> = ({
         const bestMatch = results[0]
         console.log('🎯 分类结果:', { content: bestMatch.content, confidence: bestMatch.confidence, type: bestMatch.matchType })
         
-        if (bestMatch.confidence > 0.6) {
-          // 高置信度，直接播放
-          console.log('✅ 高置信度匹配，直接播放:', bestMatch.content)
+        if (bestMatch.confidence > 0.4) {
+          // 置信度足够，直接播放
+          console.log('✅ 置信度足够，直接播放:', bestMatch.content)
           await executeCommand(bestMatch)
-        } else if (bestMatch.confidence > 0.25) {
-          // 中等置信度，显示候选列表
-          console.log('🤔 中等置信度，显示候选列表')
-          updateState('idle') // 让用户选择
-          setTranscript(`找到 ${results.length} 个候选指令，请选择`)
-          setClassificationResults(results.slice(0, 3)) // 显示前3个候选
         } else {
-          // 低置信度，提示重试
-          console.log('❓ 识别不确定，请重试')
+          // [MODIFIED] 置信度不够，使用新的重置函数
+          console.log('❓ 置信度不够，请重新说一遍')
           playNotificationSound('error')
-          setTranscript('识别不确定，请重新说一遍')
+          setClassificationResults([]); // 清除旧结果
+          
+          // 延迟后回到 awakened 状态并重启监听
           setTimeout(() => {
-            updateState('listening')
-            setTranscript('')
-          }, 2000)
+            resetToAwakenedState('识别不够准确，请重新说出指令');
+          }, 1500);
         }
       } else {
+        // [MODIFIED] 没有匹配指令，也回到 awakened 状态并重启
         console.log('❌ 没有找到匹配的指令')
         playNotificationSound('error')
-        setTranscript('没有找到匹配的指令，请重试')
-        setTimeout(() => {
-          updateState('listening')
-          setTranscript('')
-
-          // 添加健壮的重启逻辑
-          if (recognitionRef.current && isRecordingRef.current) {
-            console.log('🔄 指令匹配失败，重启识别...')
-            recognitionRef.current.abort()
-
-            setTimeout(() => {
-              if (isRecordingRef.current) { // 再次检查以防用户手动停止
-                try {
-                  recognitionRef.current.start()
-                  console.log('✅ 匹配失败后重启识别成功')
-                } catch (error) {
-                  console.error('❌ 匹配失败后重启识别失败:', error)
-                }
-              }
-            }, 100)
-          }
-        }, 2000)
-      }
-    } catch (error) {
-      console.error('指令分类失败:', error)
-      playNotificationSound('error')
-      updateState('listening')
-      
-      // 分类失败时也需要重启语音识别
-      if (recognitionRef.current && isRecordingRef.current) {
-        console.log('🔄 指令分类异常，重启识别...')
-        recognitionRef.current.abort()
+        setClassificationResults([]);
         
         setTimeout(() => {
-          if (isRecordingRef.current) {
-            try {
-              recognitionRef.current.start()
-              console.log('✅ 分类异常后重启识别成功')
-            } catch (restartError) {
-              console.error('❌ 分类异常后重启识别失败:', restartError)
-            }
-          }
-        }, 100)
+          resetToAwakenedState('没有匹配的指令，请重试');
+        }, 1500);
       }
+    } catch (error) {
+      // [MODIFIED] 分类失败，也回到 awakened 状态并重启
+      console.error('指令分类失败:', error)
+      playNotificationSound('error')
+      
+      setTimeout(() => {
+        resetToAwakenedState('处理出错，请重试');
+      }, 1500);
     }
   }
 
@@ -668,27 +725,35 @@ const ModernVoiceControl: React.FC<ModernVoiceControlProps> = ({
       if (results.length > 0) {
         const bestMatch = results[0]
         
-        if (bestMatch.confidence > 0.95) {
-          // 高置信度，直接播放
-          console.log('🎯 高置信度匹配:', bestMatch.content)
+        if (bestMatch.confidence > 0.6) {
+          // 置信度足够，直接播放
+          console.log('🎯 置信度足够，直接播放:', bestMatch.content)
           await executeCommand(bestMatch)
-        } else if (bestMatch.confidence > 0.7) {
-          // 中等置信度，显示候选列表
-          console.log('🤔 中等置信度，显示候选:', results)
-          updateState('idle') // 回到空闲状态，让用户选择
         } else {
-          // 低置信度，提示重试
-          console.log('❓ 识别不确定，请重试')
+          // [MODIFIED] 置信度不够，使用新的重置函数
+          console.log('❓ 置信度不够，请重新说一遍')
           playNotificationSound('error')
-          updateState('listening') // 回到监听状态
+          setClassificationResults([]); // 清除旧结果
+          
+          // 延迟后回到 awakened 状态并重启监听
+          setTimeout(() => {
+            resetToAwakenedState('识别不够准确，请重新说出指令');
+          }, 1500);
         }
       } else {
-        updateState('listening')
+        // [MODIFIED] 没有结果，回到 awakened 状态
+        setTimeout(() => {
+          resetToAwakenedState('没有识别到指令内容，请重试');
+        }, 1500);
       }
     } catch (error) {
+      // [MODIFIED] 处理失败，回到 awakened 状态
       console.error('音频处理失败:', error)
       playNotificationSound('error')
-      updateState('listening')
+      
+      setTimeout(() => {
+        resetToAwakenedState('音频处理出错，请重试');
+      }, 1500);
     }
   }
 
@@ -730,50 +795,17 @@ const ModernVoiceControl: React.FC<ModernVoiceControlProps> = ({
     onPlayCommand(result.command_id, result.content)
     onCommandPlayed?.(result.content)
     
-    // 播放完成后回到监听状态
+    // [REFACTORED] 播放完成后，延迟回到 listening 状态并重启识别
     setTimeout(() => {
-      if (isRecording) {
+      if (isRecordingRef.current) {
+        console.log('▶️ 播放完成，回到 listening 状态');
         updateState('listening')
         setTranscript('')
-        setIsRestarting(true) // 设置重启状态，防止onend重复启动
-        
-        // 重启语音识别
-        if (recognitionRef.current && isRecordingRef.current) {
-          console.log('🔄 准备从 playing 状态重启识别...')
-          
-          // 1. 使用 abort() 强制结束当前会话，这比 stop() 更直接
-          recognitionRef.current.abort()
-          
-          // 2. 短暂延迟后，安全地启动新的识别会话
-          setTimeout(() => {
-            // 再次检查用户是否在此期间手动停止了录音
-            if (recognitionRef.current && isRecordingRef.current) {
-              try {
-                recognitionRef.current.start()
-                console.log('✅ 播放后重启识别成功')
-                setIsRestarting(false) // 启动成功后清除重启状态
-              } catch (error) {
-                console.error('❌ 播放后重启识别失败:', error)
-                setIsRestarting(false)
-                // 如果重启失败，可以考虑执行更完整的重置流程
-                setTimeout(() => {
-                  if (recognitionRef.current && isRecordingRef.current) {
-                    try {
-                      recognitionRef.current.start()
-                      console.log('🔄 延迟重试启动成功')
-                    } catch (retryError) {
-                      console.error('❌ 延迟重试也失败:', retryError)
-                    }
-                  }
-                }, 500)
-              }
-            } else {
-              setIsRestarting(false)
-            }
-          }, 100) // 100毫秒的短延迟通常足够
-        }
+        restartRecognition(); // [FIX] 使用统一的重启函数
       }
     }, 2000)
+    
+
   }
 
   // 手动选择命令
@@ -796,8 +828,8 @@ const ModernVoiceControl: React.FC<ModernVoiceControlProps> = ({
   useEffect(() => {
     if (commands.length > 0) {
       classifierRef.current = new AudioClassifier(commands, {
-        minConfidence: 0.3,
-        maxResults: 5,
+        minConfidence: 0.2, // 降低最小置信度，让更多结果进入候选
+        maxResults: 1,       // 只需要最佳匹配结果
         enablePinyinMatch: true,
         enableSemanticMatch: true,
         enableFuzzyMatch: true
@@ -965,36 +997,30 @@ const ModernVoiceControl: React.FC<ModernVoiceControlProps> = ({
           </div>
         )}
 
-        {/* 分类结果 */}
+        {/* 识别结果 - 仅显示信息，无需用户操作 */}
         {classificationResults.length > 0 && (
           <div className="space-y-2">
-            <h4 className="text-sm font-medium text-gray-700">智能匹配结果</h4>
-            {classificationResults.map((result, index) => (
-              <div
-                key={result.command_id}
-                className="flex items-center justify-between p-3 border rounded-lg hover:bg-gray-50 cursor-pointer"
-                onClick={() => selectCommand(result)}
-              >
-                <div className="flex-1">
-                  <p className="font-medium">{result.content}</p>
-                  <div className="flex space-x-4 text-xs text-gray-500 mt-1">
-                    <span>置信度: {Math.round(result.confidence * 100)}%</span>
-                    <span>相似度: {Math.round(result.similarity * 100)}%</span>
-                    <span className={`px-1 rounded ${
-                      result.matchType === 'exact' ? 'bg-green-100 text-green-800' :
-                      result.matchType === 'semantic' ? 'bg-blue-100 text-blue-800' :
-                      result.matchType === 'pinyin' ? 'bg-yellow-100 text-yellow-800' :
-                      'bg-gray-100 text-gray-800'
-                    }`}>
-                      {result.matchType}
-                    </span>
-                  </div>
+            <h4 className="text-sm font-medium text-gray-700">识别结果</h4>
+            <div className="p-3 border rounded-lg bg-blue-50 border-blue-200">
+              <div className="flex-1">
+                <p className="font-medium text-blue-800">{classificationResults[0].content}</p>
+                <div className="flex space-x-4 text-xs text-blue-600 mt-1">
+                  <span>置信度: {Math.round(classificationResults[0].confidence * 100)}%</span>
+                  <span>相似度: {Math.round(classificationResults[0].similarity * 100)}%</span>
+                  <span className={`px-1 rounded ${
+                    classificationResults[0].matchType === 'exact' ? 'bg-green-100 text-green-800' :
+                    classificationResults[0].matchType === 'semantic' ? 'bg-blue-100 text-blue-800' :
+                    classificationResults[0].matchType === 'pinyin' ? 'bg-yellow-100 text-yellow-800' :
+                    'bg-gray-100 text-gray-800'
+                  }`}>
+                    {classificationResults[0].matchType}
+                  </span>
                 </div>
-                <Button size="sm" variant="outline">
-                  选择
-                </Button>
+                <div className="mt-2 text-xs text-blue-500">
+                  💡 系统将自动处理此指令
+                </div>
               </div>
-            ))}
+            </div>
           </div>
         )}
 
@@ -1011,7 +1037,14 @@ const ModernVoiceControl: React.FC<ModernVoiceControlProps> = ({
 
         {/* 唤醒词提示 */}
         <div className="bg-gray-50 p-3 rounded-lg">
-          <h4 className="text-sm font-medium text-gray-700 mb-2">支持的唤醒词</h4>
+          <div className="flex items-center justify-between mb-2">
+            <h4 className="text-sm font-medium text-gray-700">支持的唤醒词</h4>
+            {enableWakeWordPinyin && (
+              <span className="text-xs text-blue-600 bg-blue-100 px-2 py-1 rounded-full">
+                🔤 拼音匹配已启用
+              </span>
+            )}
+          </div>
           <div className="flex flex-wrap gap-2">
             {wakeWords.map((word, index) => (
               <span
@@ -1022,6 +1055,11 @@ const ModernVoiceControl: React.FC<ModernVoiceControlProps> = ({
               </span>
             ))}
           </div>
+          {enableWakeWordPinyin && (
+            <div className="mt-2 text-xs text-gray-500">
+              💡 支持发音相似但文字不同的唤醒词识别
+            </div>
+          )}
         </div>
       </CardContent>
     </Card>
