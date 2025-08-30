@@ -52,10 +52,14 @@ const CommandsPage: React.FC = () => {
     }
   })
 
-  // 更新指令状态
+  // 更新指令状态/模板
   const updateCommandMutation = useMutation({
-    mutationFn: ({ commandId, isActive }: { commandId: string, isActive: boolean }) => 
-      apiClient.updateCommand(commandId, { is_active: isActive }),
+    mutationFn: (payload: { commandId: string, isActive?: boolean, isTemplate?: boolean }) => {
+      const body: any = {}
+      if (payload.isActive !== undefined) body.is_active = payload.isActive
+      if (payload.isTemplate !== undefined) body.is_template = payload.isTemplate
+      return apiClient.updateCommand(payload.commandId, body)
+    },
     onSuccess: () => {
       toast.success('指令状态已更新')
       queryClient.invalidateQueries({ queryKey: ['commands'] })
@@ -229,23 +233,26 @@ const CommandsPage: React.FC = () => {
                       </Link>
                     </Button>
                     
-                    {!command.is_template && (
-                      <>
+                    <>
                         <Button
                           variant="outline"
                           size="sm"
                           className="w-full md:w-auto"
-                          onClick={() => updateCommandMutation.mutate({
-                            commandId: command.id,
-                            isActive: !command.is_active
-                          })}
+                          onClick={() => updateCommandMutation.mutate({ commandId: command.id, isActive: !command.is_active })}
                           disabled={updateCommandMutation.isPending}
                         >
                           {command.is_active ? '禁用' : '启用'}
                         </Button>
-                        
-
-                        
+                        {/* 模板切换仅管理员有权限，由后端校验；普通用户调用将被忽略 */}
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="w-full md:w-auto"
+                          onClick={() => updateCommandMutation.mutate({ commandId: command.id, isTemplate: !command.is_template })}
+                          disabled={updateCommandMutation.isPending}
+                        >
+                          {command.is_template ? '设为个人' : '设为模板'}
+                        </Button>
                         <Button
                           variant="outline"
                           size="sm"
@@ -256,7 +263,7 @@ const CommandsPage: React.FC = () => {
                           <Trash2 className="h-4 w-4" />
                         </Button>
                       </>
-                    )}
+                    
                   </div>
                 </div>
               ))}

@@ -215,9 +215,13 @@ async def update_command(
             detail="指令不存在或无权访问"
         )
     
-    # 更新字段
+    # 更新字段（仅管理员可修改 is_template）
     update_data = command_data.model_dump(exclude_unset=True)
-    for field, value in update_data.items():
+    for field, value in list(update_data.items()):
+        if field == 'is_template':
+            if str(current_role).lower() != 'admin':
+                update_data.pop('is_template')
+                continue
         setattr(command, field, value)
     
     await db.commit()
@@ -226,7 +230,7 @@ async def update_command(
     return CommandResponse.model_validate(command)
 
 
-@router.delete("/{command_id}", summary="删除指令")
+@router.delete("/{command_id}", summary="删除指令（管理员可删除模板）")
 async def delete_command(
     command_id: str,
     db: AsyncSession = Depends(get_db),
@@ -251,11 +255,11 @@ async def delete_command(
             detail="指令不存在或无权访问"
         )
     
-    # 检查是否为模板指令
-    if command.is_template:
+    # 模板删除：仅管理员允许
+    if command.is_template and str(current_role).lower() != 'admin':
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="模板指令无法删除"
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="只有管理员可以删除模板指令"
         )
     
     # 检查是否有患者正在使用此指令

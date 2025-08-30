@@ -16,7 +16,8 @@ import {
   User,
   Calendar,
   FileText,
-  AudioLines
+  AudioLines,
+  Trash2
 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -71,6 +72,25 @@ const PatientDetailPage: React.FC = () => {
       toast.error(error.response?.data?.detail || '播放失败')
     }
   })
+
+  // 解绑（删除）分配
+  const deleteAssignmentMutation = useMutation({
+    mutationFn: (assignmentId: number) => apiClient.deletePatientAssignment(assignmentId),
+    onSuccess: () => {
+      toast.success('已解除该术中指令绑定')
+      queryClient.invalidateQueries({ queryKey: ['patient-assignments', patientId] })
+      queryClient.invalidateQueries({ queryKey: ['patient', patientId] })
+    },
+    onError: (error: any) => {
+      toast.error(error.response?.data?.detail || '解除绑定失败')
+    }
+  })
+
+  const handleUnassign = (assignmentId: number, commandContent: string) => {
+    if (window.confirm(`确定解除指令“${commandContent}”与该患者的绑定吗？`)) {
+      deleteAssignmentMutation.mutate(assignmentId)
+    }
+  }
 
 
 
@@ -276,6 +296,16 @@ const PatientDetailPage: React.FC = () => {
                     >
                       <FileText className="h-4 w-4 mr-2" />
                       编辑
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="text-red-600 hover:text-red-700"
+                      onClick={() => handleUnassign(assignment.id, assignment.command_content)}
+                      disabled={deleteAssignmentMutation.isPending}
+                    >
+                      <Trash2 className="h-4 w-4 mr-2" />
+                      解绑
                     </Button>
                   </div>
                 </div>

@@ -30,6 +30,7 @@ class CommandVariantUpdate(BaseModel):
     speaker_name: Optional[str] = Field(None, max_length=100, description="说话人姓名")
     speaker_note: Optional[str] = Field(None, max_length=500, description="说话人备注")
     is_active: Optional[bool] = Field(None, description="是否激活")
+    is_template: Optional[bool] = Field(None, description="是否为系统模板（仅管理员可修改）")
 
 
 class CommandVariantResponse(CommandVariantBase):

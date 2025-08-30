@@ -31,6 +31,7 @@ export interface CommandUpdate {
   content?: string
   description?: string
   is_active?: boolean
+  is_template?: boolean
 }
 
 export interface CommandVariant {

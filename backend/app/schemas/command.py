@@ -26,6 +26,7 @@ class CommandUpdate(BaseModel):
     content: Optional[str] = Field(None, min_length=1, max_length=500, description="指令内容")
     description: Optional[str] = Field(None, max_length=1000, description="指令描述")
     is_active: Optional[bool] = Field(None, description="是否激活")
+    is_template: Optional[bool] = Field(None, description="是否为系统模板（仅管理员可修改）")
 
 
 class CommandResponse(BaseModel):

@@ -201,9 +201,13 @@ async def update_command_variant(
             detail="只能修改自己创建的变体"
         )
     
-    # 更新字段
+    # 更新字段（仅管理员可修改 is_template）
     update_data = variant_data.model_dump(exclude_unset=True)
-    for field, value in update_data.items():
+    for field, value in list(update_data.items()):
+        if field == 'is_template':
+            if str(current_role).lower() != 'admin':
+                update_data.pop('is_template')
+                continue
         setattr(variant, field, value)
     
     await db.commit()
