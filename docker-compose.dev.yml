@@ -31,7 +31,7 @@ services:
     container_name: voicematch_api_dev
     restart: unless-stopped
     environment:
-      DATABASE_URL: mysql+aiomysql://${MYSQL_USER:-voicematch}:${MYSQL_PASSWORD:-voicematch123}@db:3306/${MYSQL_DATABASE:-voicematch}
+      DATABASE_URL: mysql://${MYSQL_USER:-voicematch}:${MYSQL_PASSWORD:-voicematch123}@db:3306/${MYSQL_DATABASE:-voicematch}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-dev-secret-key}
       SECRET_KEY: ${SECRET_KEY:-dev-secret-key}
       STORAGE_BACKEND: ${STORAGE_BACKEND:-local}

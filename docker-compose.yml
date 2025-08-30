@@ -87,7 +87,7 @@ services:
       SECRET_KEY: ${SECRET_KEY:-your-super-secret-key-change-this-in-production}
       
       # 数据库配置
-      DATABASE_URL: mysql+aiomysql://${MYSQL_USER:-voicematch}:${MYSQL_PASSWORD:-voicematch123}@db:3306/${MYSQL_DATABASE:-voicematch}
+      DATABASE_URL: mysql://${MYSQL_USER:-voicematch}:${MYSQL_PASSWORD:-voicematch123}@db:3306/${MYSQL_DATABASE:-voicematch}
       
       # JWT配置
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-your-super-secret-jwt-key-change-this-in-production}

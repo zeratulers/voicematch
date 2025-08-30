@@ -19,10 +19,26 @@ class Base(DeclarativeBase):
     pass
 
 
+# URL 规范化工具，避免重复添加 driver 前缀
+def normalize_db_url(url: str) -> str:
+    if url.startswith("mysql+"):
+        # 已包含驱动，强制只保留一次 aiomysql
+        # 例如：mysql+aiomysql+aiomysql:// -> mysql+aiomysql://
+        url = url.replace("mysql+aiomysql+aiomysql://", "mysql+aiomysql://")
+        url = url.replace("mysql+aiomysql+pymysql://", "mysql+aiomysql://")
+        return url
+    if url.startswith("mysql://"):
+        return url.replace("mysql://", "mysql+aiomysql://")
+    if url.startswith("sqlite+aiosqlite:///"):
+        return url
+    if url.startswith("sqlite:///"):
+        return url.replace("sqlite:///", "sqlite+aiosqlite:///")
+    return url
+
 # 创建异步数据库引擎
 if settings.is_mysql:
     # MySQL连接配置
-    DATABASE_URL = settings.DATABASE_URL.replace("mysql://", "mysql+aiomysql://")
+    DATABASE_URL = normalize_db_url(settings.DATABASE_URL)
     logger.info(f"🔗 使用MySQL数据库")
     logger.info(f"   - 连接URL: {settings.DATABASE_URL}")
     logger.info(f"   - 异步URL: {DATABASE_URL}")
@@ -36,7 +52,7 @@ if settings.is_mysql:
     )
 elif settings.is_sqlite:
     # SQLite连接配置
-    DATABASE_URL = settings.DATABASE_URL.replace("sqlite:///", "sqlite+aiosqlite:///")
+    DATABASE_URL = normalize_db_url(settings.DATABASE_URL)
     logger.info(f"🔗 使用SQLite数据库")
     logger.info(f"   - 连接URL: {settings.DATABASE_URL}")
     logger.info(f"   - 异步URL: {DATABASE_URL}")
@@ -95,12 +111,9 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 
 def get_db_url() -> str:
     """获取数据库连接URL"""
-    if settings.is_mysql:
-        return settings.DATABASE_URL.replace("mysql://", "mysql+aiomysql://")
-    elif settings.is_sqlite:
-        return settings.DATABASE_URL.replace("sqlite:///", "sqlite+aiosqlite:///")
-    else:
-        raise ValueError(f"不支持的数据库类型: {settings.DATABASE_URL}")
+    if settings.is_mysql or settings.is_sqlite:
+        return normalize_db_url(settings.DATABASE_URL)
+    raise ValueError(f"不支持的数据库类型: {settings.DATABASE_URL}")
 
 
 # 异步会话工厂别名
