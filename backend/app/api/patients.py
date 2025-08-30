@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, desc, or_
 from sqlalchemy.orm import selectinload
 from typing import Optional, List
+from datetime import datetime, date
 
 from app.core.database import get_db
 from app.core.security import get_current_active_user
@@ -29,6 +30,22 @@ from app.schemas.command import CommandResponse
 
 router = APIRouter()
 
+
+def _to_iso8601(value):
+    """将 datetime/date/字符串 安全地转换为 ISO8601 字符串。"""
+    if value is None:
+        return None
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    if isinstance(value, str):
+        # 尝试解析常见格式；失败则原样返回
+        try:
+            # 兼容结尾 Z 的UTC格式
+            v = value.replace('Z', '+00:00')
+            return datetime.fromisoformat(v).isoformat()
+        except Exception:
+            return value
+    return str(value)
 
 async def _auto_assign_active_commands(db: AsyncSession, patient_id: int, doctor_id: int):
     """
@@ -214,7 +231,7 @@ async def get_patient(
             "command_content": a.command.content,
             "variant_id": a.variant_id,
             "is_active": a.is_active,
-            "created_at": a.created_at.isoformat()
+            "created_at": _to_iso8601(a.created_at)
         } for a in assignments],
         total_assignments=total_assignments,
         active_assignments=active_assignments
