@@ -5,12 +5,11 @@ FROM node:18-alpine AS builder
 
 WORKDIR /app
 
-# 复制package.json和yarn.lock
+# 复制package.json和package-lock.json
 COPY package*.json ./
-COPY yarn.lock* ./
 
-# 安装依赖
-RUN npm ci --only=production
+# 安装所有依赖（包括devDependencies，构建时需要）
+RUN npm ci
 
 # 复制源代码
 COPY . .
@@ -36,7 +35,7 @@ COPY nginx.conf /etc/nginx/nginx.conf
 # 暴露端口
 EXPOSE 80
 
-# 健康检查
+# 健康检查 - 使用nginx配置中的/health路径
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD curl -f http://localhost/health || exit 1
 

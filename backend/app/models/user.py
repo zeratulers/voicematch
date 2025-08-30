@@ -4,7 +4,7 @@
 支持医生和管理员两种角色的用户管理，医生可以有多个患者和指令
 """
 
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, Enum
+from sqlalchemy import Column, Integer, String, Boolean, DateTime
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from enum import Enum as PyEnum
@@ -35,11 +35,12 @@ class User(Base):
         comment="用户名"
     )
     password_hash = Column(String(255), nullable=False, comment="密码哈希")
+    # 使用字符串存储角色，值为 'admin' 或 'doctor'，以兼容现有数据
     role = Column(
-        Enum(UserRole), 
-        nullable=False, 
-        default=UserRole.DOCTOR,
-        comment="用户角色：admin或doctor"
+        String(20),
+        nullable=False,
+        default=UserRole.DOCTOR.value.upper(),
+        comment="用户角色：ADMIN或DOCTOR"
     )
     is_active = Column(Boolean, default=True, comment="是否激活")
     

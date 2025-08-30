@@ -98,7 +98,8 @@ async def get_patients(
     query = select(Patient)
     
     # 权限控制：普通医生只能看到自己的患者
-    if current_user.role.value != "admin":
+    current_role = (current_user.role.value if hasattr(current_user.role, "value") else current_user.role)
+    if str(current_role).lower() != "admin":
         query = query.filter(Patient.doctor_id == current_user.id)
     
     # 搜索过滤
@@ -176,7 +177,8 @@ async def get_patient(
     query = select(Patient).filter(Patient.id == patient_id)
     
     # 权限控制
-    if current_user.role.value != "admin":
+    current_role = (current_user.role.value if hasattr(current_user.role, "value") else current_user.role)
+    if str(current_role).lower() != "admin":
         query = query.filter(Patient.doctor_id == current_user.id)
     
     result = await db.execute(query)
@@ -232,7 +234,8 @@ async def update_patient(
     query = select(Patient).filter(Patient.id == patient_id)
     
     # 权限控制
-    if current_user.role.value != "admin":
+    current_role = (current_user.role.value if hasattr(current_user.role, "value") else current_user.role)
+    if str(current_role).lower() != "admin":
         query = query.filter(Patient.doctor_id == current_user.id)
     
     result = await db.execute(query)
@@ -279,7 +282,8 @@ async def delete_patient(
     query = select(Patient).filter(Patient.id == patient_id)
     
     # 权限控制
-    if current_user.role.value != "admin":
+    current_role = (current_user.role.value if hasattr(current_user.role, "value") else current_user.role)
+    if str(current_role).lower() != "admin":
         query = query.filter(Patient.doctor_id == current_user.id)
     
     result = await db.execute(query)

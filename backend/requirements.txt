@@ -8,6 +8,7 @@ sqlalchemy==2.0.30
 alembic==1.13.1
 pymysql>=1.1.0
 mysqlclient>=2.2.0
+mysql-connector-python>=8.0.0
 
 # Validation and serialization
 pydantic==2.6.4

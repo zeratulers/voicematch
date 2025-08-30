@@ -25,6 +25,7 @@ from app.schemas.command import (
     CommandWithVariantsResponse,
     DoctorCommandStats
 )
+from app.schemas.patient import PatientOverview, Gender as SchemaGender
 
 router = APIRouter()
 
@@ -46,7 +47,8 @@ async def get_commands(
     query = select(Command)
     
     # 权限控制：普通医生只能看到自己创建的指令和模板指令
-    if current_user.role.value != "admin":
+    current_role = (current_user.role.value if hasattr(current_user.role, "value") else current_user.role)
+    if str(current_role).lower() != "admin":
         query = query.filter(
             or_(
                 Command.doctor_id == current_user.id,
@@ -114,7 +116,8 @@ async def create_command(
         )
     
     # 只有管理员可以创建模板指令
-    if command_data.is_template and current_user.role.value != "admin":
+    current_role = (current_user.role.value if hasattr(current_user.role, "value") else current_user.role)
+    if command_data.is_template and str(current_role).lower() != "admin":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="只有管理员可以创建模板指令"
@@ -148,7 +151,8 @@ async def get_command(
     ).filter(Command.id == command_id)
     
     # 权限控制
-    if current_user.role.value != "admin":
+    current_role = (current_user.role.value if hasattr(current_user.role, "value") else current_user.role)
+    if str(current_role).lower() != "admin":
         query = query.filter(
             or_(
                 Command.doctor_id == current_user.id,
@@ -197,7 +201,8 @@ async def update_command(
     query = select(Command).filter(Command.id == command_id)
     
     # 权限控制：只能修改自己创建的指令或管理员修改模板
-    if current_user.role.value != "admin":
+    current_role = (current_user.role.value if hasattr(current_user.role, "value") else current_user.role)
+    if str(current_role).lower() != "admin":
         query = query.filter(Command.doctor_id == current_user.id)
     
     result = await db.execute(query)
@@ -232,7 +237,8 @@ async def delete_command(
     query = select(Command).filter(Command.id == command_id)
     
     # 权限控制
-    if current_user.role.value != "admin":
+    current_role = (current_user.role.value if hasattr(current_user.role, "value") else current_user.role)
+    if str(current_role).lower() != "admin":
         query = query.filter(Command.doctor_id == current_user.id)
     
     result = await db.execute(query)
@@ -303,7 +309,7 @@ async def get_doctor_command_stats(
             or_(
                 Command.doctor_id == current_user.id,
                 Command.is_template == True
-            ) if current_user.role.value != "admin" else True
+            ) if (str((current_user.role.value if hasattr(current_user.role, "value") else current_user.role)).lower() != "admin") else True
         )
     )
     commands_stats = commands_result.first()
@@ -317,7 +323,7 @@ async def get_doctor_command_stats(
             or_(
                 Command.doctor_id == current_user.id,
                 Command.is_template == True
-            ) if current_user.role.value != "admin" else True
+            ) if (str((current_user.role.value if hasattr(current_user.role, "value") else current_user.role)).lower() != "admin") else True
         )
     )
     total_variants = variants_result.scalar() or 0
@@ -345,3 +351,68 @@ async def get_doctor_command_stats(
         total_patients=total_patients,
         total_assignments=total_assignments
     )
+
+
+@router.get("/stats/doctor/recent-patients", response_model=List[PatientOverview], summary="获取医生最近操作的患者")
+async def get_recent_patients_for_doctor(
+    limit: int = 3,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """
+    返回当前医生最近操作过（在分配表中有记录）的患者，默认3个；并附带每个患者的指令分配数量
+    """
+    # 最近操作的患者ID，按分配更新时间倒序
+    recent_q = (
+        select(
+            PatientCommandAssignment.patient_id,
+            func.max(PatientCommandAssignment.updated_at).label("last_time")
+        )
+        .filter(PatientCommandAssignment.assigned_by == current_user.id)
+        .group_by(PatientCommandAssignment.patient_id)
+        .order_by(desc("last_time"))
+        .limit(limit)
+    )
+
+    recent_rows = (await db.execute(recent_q)).all()
+    patient_ids = [row.patient_id for row in recent_rows]
+    if not patient_ids:
+        return []
+
+    # 患者信息
+    patients_map = {
+        p.id: p for p in (await db.execute(select(Patient).filter(Patient.id.in_(patient_ids)))).scalars().all()
+    }
+
+    # 统计每个患者的指令分配数量
+    counts_map = {
+        pid: cnt for pid, cnt in (
+            await db.execute(
+                select(
+                    PatientCommandAssignment.patient_id,
+                    func.count(PatientCommandAssignment.id)
+                )
+                .filter(
+                    PatientCommandAssignment.assigned_by == current_user.id,
+                    PatientCommandAssignment.patient_id.in_(patient_ids)
+                )
+                .group_by(PatientCommandAssignment.patient_id)
+            )
+        ).all()
+    }
+
+    # 保持最近顺序
+    overviews: List[PatientOverview] = []
+    for row in recent_rows:
+        p = patients_map.get(row.patient_id)
+        if not p:
+            continue
+        gender_value = p.gender.value if hasattr(p.gender, "value") else p.gender
+        overviews.append(PatientOverview(
+            id=p.id,
+            name=p.name,
+            gender=SchemaGender(gender_value),
+            total_commands=counts_map.get(p.id, 0)
+        ))
+
+    return overviews

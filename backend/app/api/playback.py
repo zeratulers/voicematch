@@ -70,7 +70,8 @@ async def trigger_playback(
         )
     
     # 权限检查：普通医生只能操作自己的患者
-    if (current_user.role.value != "admin" and 
+    current_role = (current_user.role.value if hasattr(current_user.role, "value") else current_user.role)
+    if (str(current_role).lower() != "admin" and 
         patient.doctor_id != current_user.id):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -158,7 +159,8 @@ async def trigger_playback_by_content(
         )
     
     # 权限检查
-    if (current_user.role.value != "admin" and 
+    current_role = (current_user.role.value if hasattr(current_user.role, "value") else current_user.role)
+    if (str(current_role).lower() != "admin" and 
         patient.doctor_id != current_user.id):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -249,7 +251,8 @@ async def resolve_patient_commands(
         )
     
     # 权限检查
-    if (current_user.role.value != "admin" and 
+    current_role = (current_user.role.value if hasattr(current_user.role, "value") else current_user.role)
+    if (str(current_role).lower() != "admin" and 
         patient.doctor_id != current_user.id):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

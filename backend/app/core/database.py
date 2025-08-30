@@ -9,6 +9,7 @@ from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy import event
 import asyncio
 from typing import AsyncGenerator
+from loguru import logger
 
 from app.core.config import settings
 
@@ -22,6 +23,11 @@ class Base(DeclarativeBase):
 if settings.is_mysql:
     # MySQL连接配置
     DATABASE_URL = settings.DATABASE_URL.replace("mysql://", "mysql+aiomysql://")
+    logger.info(f"🔗 使用MySQL数据库")
+    logger.info(f"   - 连接URL: {settings.DATABASE_URL}")
+    logger.info(f"   - 异步URL: {DATABASE_URL}")
+    logger.info(f"   - 数据库类型: MySQL 8.0")
+    
     engine = create_async_engine(
         DATABASE_URL,
         echo=settings.DEBUG,
@@ -31,13 +37,21 @@ if settings.is_mysql:
 elif settings.is_sqlite:
     # SQLite连接配置
     DATABASE_URL = settings.DATABASE_URL.replace("sqlite:///", "sqlite+aiosqlite:///")
+    logger.info(f"🔗 使用SQLite数据库")
+    logger.info(f"   - 连接URL: {settings.DATABASE_URL}")
+    logger.info(f"   - 异步URL: {DATABASE_URL}")
+    logger.info(f"   - 数据库类型: SQLite")
+    logger.info(f"   - 数据库文件: {settings.DATABASE_URL.replace('sqlite:///', '')}")
+    
     engine = create_async_engine(
         DATABASE_URL,
         echo=settings.DEBUG,
         connect_args={"check_same_thread": False} if settings.is_sqlite else {},
     )
 else:
-    raise ValueError(f"不支持的数据库类型: {settings.DATABASE_URL}")
+    error_msg = f"❌ 不支持的数据库类型: {settings.DATABASE_URL}"
+    logger.error(error_msg)
+    raise ValueError(error_msg)
 
 
 # SQLite外键约束支持
@@ -47,6 +61,7 @@ if settings.is_sqlite:
         cursor = dbapi_connection.cursor()
         cursor.execute("PRAGMA foreign_keys=ON")
         cursor.close()
+        logger.info("   - 已启用SQLite外键约束支持")
 
 
 # 创建异步会话工厂
@@ -57,6 +72,8 @@ AsyncSessionLocal = async_sessionmaker(
     autoflush=True,
     autocommit=False,
 )
+
+logger.info(f"✅ 数据库引擎初始化完成")
 
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
@@ -96,6 +113,8 @@ async def init_db() -> None:
     
     注意：生产环境应使用Alembic迁移而非此方法
     """
+    logger.info("🔄 开始初始化数据库表结构...")
+    
     # 导入所有模型以确保它们被注册到Base.metadata
     from app.models.user import User
     from app.models.patient import Patient
@@ -106,12 +125,23 @@ async def init_db() -> None:
     from app.models.system_setting import SystemSetting
     from app.models.audit_log import AuditLog
     
+    logger.info(f"   - 已加载 {len(Base.metadata.tables)} 个数据模型")
+    logger.info(f"   - 模型列表: {', '.join(Base.metadata.tables.keys())}")
+    
     # 创建所有表（仅在开发环境使用）
     if settings.DEBUG:
+        logger.info("   - 开发模式：正在创建数据库表...")
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
+        logger.info("   - 数据库表创建完成")
+    else:
+        logger.info("   - 生产模式：跳过表创建（请使用Alembic迁移）")
+    
+    logger.info("✅ 数据库初始化完成")
 
 
 async def close_db() -> None:
     """关闭数据库连接"""
+    logger.info("🔄 正在关闭数据库连接...")
     await engine.dispose()
+    logger.info("✅ 数据库连接已关闭")

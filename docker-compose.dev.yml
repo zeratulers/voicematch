@@ -1,47 +1,82 @@
 version: '3.8'
 
 services:
-  # 开发环境数据库
+  # 数据库服务 (MySQL)
   db:
     image: mysql:8.0
-    container_name: voicematch_dev_db
+    container_name: voicematch_db_dev
     restart: unless-stopped
     environment:
-      MYSQL_ROOT_PASSWORD: voicematch123
-      MYSQL_DATABASE: voicematch_dev
-      MYSQL_USER: voicematch
-      MYSQL_PASSWORD: voicematch123
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-voicematch123}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-voicematch}
+      MYSQL_USER: ${MYSQL_USER:-voicematch}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-voicematch123}
     ports:
       - "3306:3306"
     volumes:
-      - mysql_dev_data:/var/lib/mysql
+      - mysql_data_dev:/var/lib/mysql
+      - ./deploy/mysql/init.sql:/docker-entrypoint-initdb.d/init.sql
     networks:
-      - voicematch-dev-network
+      - voicematch-network-dev
     command: >
       --character-set-server=utf8mb4
       --collation-server=utf8mb4_unicode_ci
+      --max_connections=1000
 
-  # 开发环境 MinIO
-  minio:
-    image: minio/minio:latest
-    container_name: voicematch_dev_minio
+  # 后端API服务（开发模式）
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: voicematch_api_dev
     restart: unless-stopped
     environment:
-      MINIO_ROOT_USER: voicematch
-      MINIO_ROOT_PASSWORD: voicematch123
+      DATABASE_URL: mysql+aiomysql://${MYSQL_USER:-voicematch}:${MYSQL_PASSWORD:-voicematch123}@db:3306/${MYSQL_DATABASE:-voicematch}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-dev-secret-key}
+      SECRET_KEY: ${SECRET_KEY:-dev-secret-key}
+      STORAGE_BACKEND: ${STORAGE_BACKEND:-local}
+      DEBUG: ${DEBUG:-true}
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "8000:8000"
     volumes:
-      - minio_dev_data:/data
+      - ./backend:/app
+      - audio_data_dev:/app/data
     networks:
-      - voicematch-dev-network
-    command: server /data --console-address ":9001"
+      - voicematch-network-dev
+    depends_on:
+      - db
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # 前端开发服务（使用Vite开发服务器）
+  web_dev:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    container_name: voicematch_web_dev
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    networks:
+      - voicematch-network-dev
+    depends_on:
+      - api
+    environment:
+      - CHOKIDAR_USEPOLLING=true
+      - WATCHPACK_POLLING=true
+    command: npm run dev
 
 volumes:
-  mysql_dev_data:
-  minio_dev_data:
+  mysql_data_dev:
+  audio_data_dev:
 
 networks:
-  voicematch-dev-network:
+  voicematch-network-dev:
     driver: bridge

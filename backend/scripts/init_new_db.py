@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from app.core.database import Base, get_db_url
 from app.models import (
     User, UserRole, Patient, Gender, Command, CommandVariant, 
-    DialectSet, PatientCommandAssignment, SystemSetting, AuditLog
+    DialectSet, PatientCommandAssignment, SystemSetting, AuditLog, VoiceLog
 )
 
 

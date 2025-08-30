@@ -87,3 +87,11 @@ class PatientStats(BaseModel):
     active_commands: int = Field(..., description="激活指令数")
     commands_with_variants: int = Field(..., description="有变体的指令数")
     last_command_created: Optional[datetime] = Field(None, description="最后指令创建时间")
+
+
+class PatientOverview(BaseModel):
+    """仪表盘患者概览（最近操作的患者）"""
+    id: int
+    name: str
+    gender: Gender
+    total_commands: int = Field(..., description="该医生为此患者已分配的指令数量")

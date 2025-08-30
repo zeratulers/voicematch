@@ -65,7 +65,8 @@ async def get_command_variants(
         )
     
     # 权限检查
-    if (current_user.role.value != "admin" and 
+    current_role = (current_user.role.value if hasattr(current_user.role, "value") else current_user.role)
+    if (str(current_role).lower() != "admin" and 
         command.doctor_id != current_user.id):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -115,7 +116,8 @@ async def create_command_variant(
         )
     
     # 权限检查：只能为自己创建的指令添加变体
-    if (current_user.role.value != "admin" and 
+    current_role = (current_user.role.value if hasattr(current_user.role, "value") else current_user.role)
+    if (str(current_role).lower() != "admin" and 
         command.doctor_id != current_user.id):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -191,7 +193,8 @@ async def update_command_variant(
         )
     
     # 权限检查
-    if (current_user.role.value != "admin" and 
+    current_role = (current_user.role.value if hasattr(current_user.role, "value") else current_user.role)
+    if (str(current_role).lower() != "admin" and 
         variant.created_by != current_user.id):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -231,7 +234,8 @@ async def delete_command_variant(
         )
     
     # 权限检查
-    if (current_user.role.value != "admin" and 
+    current_role = (current_user.role.value if hasattr(current_user.role, "value") else current_user.role)
+    if (str(current_role).lower() != "admin" and 
         variant.created_by != current_user.id):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -294,7 +298,8 @@ async def set_active_variant(
             detail="指令不存在"
         )
     
-    if (current_user.role.value != "admin" and 
+    current_role = (current_user.role.value if hasattr(current_user.role, "value") else current_user.role)
+    if (str(current_role).lower() != "admin" and 
         command.doctor_id != current_user.id):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

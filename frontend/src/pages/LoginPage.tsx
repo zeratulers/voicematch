@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import React, { useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
-import { toast } from 'sonner'
+import { Toaster, toast } from 'sonner'
 import LoadingSpinner from '../components/ui/LoadingSpinner'
 
 export default function LoginPage() {
@@ -19,7 +19,19 @@ export default function LoginPage() {
       await login(formData)
       toast.success('登录成功！')
     } catch (error: any) {
-      toast.error(error.message || '登录失败')
+      const status = error?.response?.status
+      const detail = error?.response?.data?.detail
+      if (status === 401) {
+        if (detail === '用户名或密码错误') {
+          toast.error('用户名或密码错误')
+        } else if (detail === '用户未激活') {
+          toast.error('该账户已被禁用，请联系管理员')
+        } else {
+          toast.error(detail || '认证失败')
+        }
+      } else {
+        toast.error(detail || error.message || '登录失败')
+      }
     } finally {
       setIsLoading(false)
     }
@@ -33,11 +45,6 @@ export default function LoginPage() {
     }))
   }
 
-  // 演示账户快速登录
-  const quickLogin = (username: string, password: string) => {
-    setFormData({ username, password })
-  }
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-md w-full space-y-8">
@@ -48,7 +55,7 @@ export default function LoginPage() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
             </svg>
           </div>
-          <h2 className="mt-6 text-3xl font-bold text-gray-900">VoiceMatch</h2>
+          <h2 className="mt-6 text-3xl font-bold text-gray-900">HealBridge</h2>
           <p className="mt-2 text-sm text-gray-600">术中语音指令播放系统</p>
         </div>
 
@@ -97,36 +104,18 @@ export default function LoginPage() {
           </div>
         </form>
 
-        {/* 演示账户 */}
-        <div className="bg-white rounded-lg shadow-md p-6">
-          <h3 className="text-lg font-medium text-gray-900 mb-4">演示账户</h3>
-          <div className="space-y-2">
-            <button
-              onClick={() => quickLogin('admin', 'admin123')}
-              className="w-full text-left px-3 py-2 border border-gray-200 rounded-md hover:bg-gray-50 transition-colors"
-            >
-              <div className="font-medium text-gray-900">管理员</div>
-              <div className="text-sm text-gray-500">用户名: admin, 密码: admin123</div>
-            </button>
-            <button
-              onClick={() => quickLogin('doctor', 'doctor123')}
-              className="w-full text-left px-3 py-2 border border-gray-200 rounded-md hover:bg-gray-50 transition-colors"
-            >
-              <div className="font-medium text-gray-900">医生</div>
-              <div className="text-sm text-gray-500">用户名: doctor, 密码: doctor123</div>
-            </button>
-          </div>
-        </div>
-
         {/* 系统说明 */}
         <div className="text-center text-sm text-gray-500">
           <p>本系统用于术中语音指令播放</p>
           <p>支持多方言音频变体和离线语音识别</p>
         </div>
       </div>
+      <Toaster />
     </div>
   )
 }
+
+
 
 
 

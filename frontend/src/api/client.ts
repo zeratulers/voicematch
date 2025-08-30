@@ -93,12 +93,24 @@ class ApiClient {
           }
         }
 
-        // 显示错误提示
-        if (error.response?.data && typeof error.response.data === 'object' && 'detail' in error.response.data) {
-          toast.error((error.response.data as any).detail)
+        // 统一错误提示，兼容422的detail数组
+        const status = error.response?.status
+        const data = error.response?.data as any
+        let message: string | undefined
+        if (data && typeof data === 'object' && 'detail' in data) {
+          const detail = (data as any).detail
+          if (Array.isArray(detail)) {
+            // FastAPI 422: [{loc, msg, ...}]
+            message = detail.map((d: any) => d?.msg || '').filter(Boolean).join('; ')
+          } else if (typeof detail === 'string') {
+            message = detail
+          } else {
+            message = '请求数据不合法'
+          }
         } else if (error.message) {
-          toast.error(error.message)
+          message = error.message
         }
+        if (message) toast.error(message)
 
         return Promise.reject(error)
       }
@@ -171,6 +183,13 @@ class ApiClient {
     } finally {
       this.clearTokens()
     }
+  }
+
+  async changePassword(oldPassword: string, newPassword: string): Promise<void> {
+    await this.client.post('/auth/change-password', {
+      old_password: oldPassword,
+      new_password: newPassword,
+    })
   }
 
   // === 患者API ===
@@ -264,6 +283,11 @@ class ApiClient {
 
   async getDoctorCommandStats(): Promise<DoctorCommandStats> {
     const response = await this.client.get<DoctorCommandStats>('/commands/stats/doctor')
+    return response.data
+  }
+
+  async getDoctorRecentPatients(limit = 3): Promise<{ id: number; name: string; gender: 'MALE'|'FEMALE'|'OTHER'; total_commands: number }[]> {
+    const response = await this.client.get('/commands/stats/doctor/recent-patients', { params: { limit } })
     return response.data
   }
 
@@ -364,6 +388,220 @@ class ApiClient {
     mime_type?: string
   }> {
     const response = await this.client.get(`/uploads/info/${filename}`)
+    return response.data
+  }
+
+  // === 管理员API ===
+
+  // 用户管理
+  async getAdminUsers(params?: {
+    page?: number
+    size?: number
+    role?: 'admin' | 'doctor'
+    is_active?: boolean
+    search?: string
+  }): Promise<{
+    items: User[]
+    total: number
+    page: number
+    size: number
+    pages: number
+  }> {
+    const response = await this.client.get('/admin/users', { params })
+    return response.data
+  }
+
+  async createUser(userData: {
+    username: string
+    password: string
+    role: 'admin' | 'doctor'
+    full_name?: string
+    department?: string
+    is_active: boolean
+  }): Promise<User> {
+    const response = await this.client.post('/admin/users', userData)
+    return response.data
+  }
+
+  async updateUser(userId: number, userData: Partial<{
+    username: string
+    password: string
+    role: 'admin' | 'doctor'
+    full_name?: string
+    department?: string
+    is_active: boolean
+  }>): Promise<User> {
+    const response = await this.client.put(`/admin/users/${userId}`, userData)
+    return response.data
+  }
+
+  async toggleUserStatus(userId: number): Promise<{
+    message: string
+    user_id: number
+    is_active: boolean
+  }> {
+    const response = await this.client.put(`/admin/users/${userId}/toggle-status`)
+    return response.data
+  }
+
+  async resetUserPassword(userId: number, passwordData: { password: string }): Promise<{ message: string }> {
+    const response = await this.client.put(`/admin/users/${userId}/reset-password`, passwordData)
+    return response.data
+  }
+
+  // 方言管理
+  async getAdminDialectSets(): Promise<DialectSet[]> {
+    const response = await this.client.get('/admin/dialect-sets')
+    return response.data
+  }
+
+  async createDialectSet(dialectData: {
+    key: string
+    label: string
+    notes?: string
+    is_default: boolean
+  }): Promise<DialectSet> {
+    const response = await this.client.post('/admin/dialect-sets', dialectData)
+    return response.data
+  }
+
+  async updateDialectSet(dialectId: number, dialectData: Partial<{
+    label: string
+    notes?: string
+    is_default: boolean
+  }>): Promise<DialectSet> {
+    const response = await this.client.put(`/admin/dialect-sets/${dialectId}`, dialectData)
+    return response.data
+  }
+
+  async deleteDialectSet(dialectId: number): Promise<{ message: string }> {
+    const response = await this.client.delete(`/admin/dialect-sets/${dialectId}`)
+    return response.data
+  }
+
+  // 系统设置
+  async getSystemSettings(): Promise<Array<{
+    key: string
+    value: string
+    description?: string
+    is_sensitive: boolean
+  }>> {
+    const response = await this.client.get('/admin/settings')
+    return response.data
+  }
+
+  async updateSystemSetting(settingKey: string, settingData: {
+    key: string
+    value: string
+    description?: string
+    is_sensitive: boolean
+  }): Promise<{ message: string }> {
+    const response = await this.client.put(`/admin/settings/${settingKey}`, settingData)
+    return response.data
+  }
+
+  // 审计日志
+  async getAuditLogs(params?: {
+    page?: number
+    size?: number
+    action?: string
+    entity?: string
+    user_id?: number
+  }): Promise<{
+    items: Array<{
+      id: number
+      action: string
+      entity: string
+      entity_id?: string
+      payload?: any
+      ip_address?: string
+      user_agent?: string
+      user_id?: number
+      created_at: string
+    }>
+    total: number
+    page: number
+    size: number
+    pages: number
+  }> {
+    const response = await this.client.get('/admin/audit-logs', { params })
+    return response.data
+  }
+
+  // 语音日志
+  async getPatientVoiceLogs(patientId: number, params?: {
+    page?: number
+    size?: number
+  }): Promise<{
+    logs: Array<{
+      id: number
+      patient_id: number
+      user_id: number
+      transcript: string
+      confidence: number
+      status: string
+      matched_command_id?: string
+      matched_command_content?: string
+      matched_confidence?: number
+      processing_time_ms?: number
+      created_at: string
+      updated_at?: string
+    }>
+    total: number
+    page: number
+    size: number
+    pages: number
+  }> {
+    const response = await this.client.get(`/voice-logs/${patientId}`, { params })
+    return response.data
+  }
+
+  async uploadVoiceLogs(request: {
+    patient_id: number
+    logs: Array<{
+      transcript: string
+      confidence: number
+      status: string
+      matched_command_id?: string
+      matched_command_content?: string
+      matched_confidence?: number
+      processing_time_ms?: number
+    }>
+  }): Promise<{
+    message: string
+    uploaded_count: number
+    failed_count: number
+    errors: string[]
+  }> {
+    const response = await this.client.post('/voice-logs/upload', request)
+    return response.data
+  }
+
+  async createVoiceLog(logData: {
+    transcript: string
+    confidence: number
+    status: string
+    matched_command_id?: string
+    matched_command_content?: string
+    matched_confidence?: number
+      processing_time_ms?: number
+  }, patientId: number): Promise<{
+    id: number
+    patient_id: number
+    user_id: number
+    transcript: string
+    confidence: number
+    status: string
+    matched_command_id?: string
+    matched_command_content?: string
+    matched_confidence?: number
+    processing_time_ms?: number
+    created_at: string
+    updated_at?: string
+  }> {
+    const response = await this.client.post('/voice-logs/', logData, { 
+      params: { patient_id: patientId } 
+    })
     return response.data
   }
 }

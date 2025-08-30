@@ -120,8 +120,8 @@ const CommandDetailPage: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* 页面标题和操作 */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center space-x-4">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-4 min-w-0">
           <Button
             variant="outline"
             onClick={() => navigate('/commands')}
@@ -129,14 +129,14 @@ const CommandDetailPage: React.FC = () => {
             <ArrowLeft className="h-4 w-4 mr-2" />
             返回指令库
           </Button>
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight">指令详情</h1>
-            <p className="text-muted-foreground">
+          <div className="min-w-0">
+            <h1 className="text-3xl font-bold tracking-tight cjk-text">指令详情</h1>
+            <p className="text-muted-foreground cjk-text">
               管理指令变体和分配记录
             </p>
           </div>
         </div>
-        <div className="flex items-center space-x-2">
+        <div className="flex flex-wrap gap-2 shrink-0" aria-label="action group">
           {!command.is_template && (
             <Button variant="outline">
               <Edit2 className="h-4 w-4 mr-2" />
@@ -254,14 +254,14 @@ const CommandDetailPage: React.FC = () => {
       </div>
 
       {/* 方言变体列表 */}
-      <Card>
+      <Card className="table-scroll">
         <CardHeader>
-          <CardTitle className="flex items-center justify-between">
-            <div className="flex items-center">
+          <CardTitle className="flex items-center justify-between gap-2">
+            <div className="flex items-center min-w-0">
               <AudioLines className="h-5 w-5 mr-2" />
-              方言变体
+              <span className="cjk-text">方言变体</span>
             </div>
-            <Button onClick={() => setIsVariantDialogOpen(true)}>
+            <Button onClick={() => setIsVariantDialogOpen(true)} className="shrink-0">
               <Plus className="h-4 w-4 mr-2" />
               添加变体
             </Button>
@@ -276,15 +276,15 @@ const CommandDetailPage: React.FC = () => {
               {command.variants.map((variant) => (
                 <div
                   key={variant.id}
-                  className="flex items-center justify-between p-4 rounded-lg border hover:bg-accent/50 transition-colors"
+                  className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 p-4 rounded-lg border hover:bg-accent/50 transition-colors"
                 >
-                  <div className="flex items-center space-x-4">
+                  <div className="flex items-center gap-4 min-w-0 w-full">
                     <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center">
                       <Globe className="h-6 w-6 text-primary" />
                     </div>
-                    <div>
-                      <div className="flex items-center space-x-2 mb-1">
-                        <h3 className="font-medium">{variant.dialect_set.label}</h3>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 mb-1">
+                        <h3 className="font-medium cjk-text break-words">{variant.dialect_set.label}</h3>
                         {variant.dialect_set.is_default && (
                           <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
                             默认方言
@@ -298,7 +298,7 @@ const CommandDetailPage: React.FC = () => {
                           {variant.is_active ? '已启用' : '已禁用'}
                         </span>
                       </div>
-                      <div className="text-sm text-muted-foreground space-y-1">
+                      <div className="text-sm text-muted-foreground space-y-1 cjk-text">
                         <p>方言代码：{variant.dialect_set.key}</p>
                         {variant.speaker_name && (
                           <p>说话人：{variant.speaker_name}</p>
@@ -314,10 +314,11 @@ const CommandDetailPage: React.FC = () => {
                     </div>
                   </div>
                   
-                  <div className="flex items-center space-x-2">
+                  <div className="grid grid-cols-1 md:flex md:flex-wrap gap-2 w-full md:w-auto md:self-auto self-end" aria-label="action group">
                     <Button
                       variant="outline"
                       size="sm"
+                      className="w-full md:w-auto"
                       onClick={() => {
                         // 播放音频
                         const audio = new Audio(variant.audio_url)
@@ -335,6 +336,7 @@ const CommandDetailPage: React.FC = () => {
                         <Button
                           variant="outline"
                           size="sm"
+                          className="w-full md:w-auto"
                           onClick={() => updateVariantMutation.mutate({
                             variantId: variant.id,
                             isActive: !variant.is_active
@@ -347,13 +349,13 @@ const CommandDetailPage: React.FC = () => {
                         <Button
                           variant="outline"
                           size="sm"
+                          className="w-full md:w-auto text-red-600 hover:text-red-700"
                           onClick={() => {
                             if (window.confirm('确定要删除这个变体吗？此操作不可恢复。')) {
                               deleteVariantMutation.mutate(variant.id)
                             }
                           }}
                           disabled={deleteVariantMutation.isPending}
-                          className="text-red-600 hover:text-red-700"
                         >
                           删除
                         </Button>

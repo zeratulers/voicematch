@@ -21,8 +21,16 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 // 表单验证Schema
 const patientCreateSchema = z.object({
   name: z.string().min(1, '姓名不能为空').max(100, '姓名不能超过100个字符'),
-  gender: z.enum(['MALE', 'FEMALE', 'OTHER'], { required_error: '请选择性别' }),
-  date_of_birth: z.string().optional(),
+  gender: z.preprocess(
+    (val) => (val === '' ? undefined : val),
+    z.enum(['MALE', 'FEMALE', 'OTHER'], { required_error: '请选择性别' })
+  ),
+  date_of_birth: z
+    .string()
+    .optional()
+    .refine((v) => !v || /^\d{4}-\d{2}-\d{2}$/.test(v), {
+      message: '出生日期格式为YYYY-MM-DD',
+    }),
   note: z.string().max(500, '备注不能超过500个字符').optional(),
 })
 
@@ -120,6 +128,8 @@ const PatientCreateDialog: React.FC<PatientCreateDialogProps> = ({
             <Label className="block mb-2">出生日期</Label>
             <Input
               type="date"
+              max={new Date().toISOString().slice(0, 10)}
+              min="1900-01-01"
               {...register('date_of_birth')}
             />
             {errors.date_of_birth && (

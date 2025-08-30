@@ -1,140 +1,79 @@
-# VoiceMatch 术中语音指令播放系统
-# 开发和部署工具
+# VoiceMatch 项目管理
 
-.PHONY: help dev dev-backend dev-frontend build up down clean logs test lint format seed install
+.PHONY: help build up down dev dev-down logs dev-logs clean db-reset frontend-dev backend-dev migrate migrate-only check-db
 
-# 默认目标
-help:
-	@echo "VoiceMatch 术中语音指令播放系统 - 开发工具"
+help: ## 显示帮助信息
+	@echo "VoiceMatch 项目管理命令"
 	@echo ""
-	@echo "可用命令："
-	@echo "  help              显示此帮助信息"
-	@echo "  install           安装开发依赖"
-	@echo "  dev               启动完整开发环境"
-	@echo "  dev-backend       仅启动后端开发服务器"
-	@echo "  dev-frontend      仅启动前端开发服务器"
-	@echo "  build             构建Docker镜像"
-	@echo "  up                启动Docker Compose服务"
-	@echo "  down              停止Docker Compose服务"
-	@echo "  clean             清理Docker资源"
-	@echo "  logs              查看服务日志"
-	@echo "  test              运行测试"
-	@echo "  lint              代码检查"
-	@echo "  format            代码格式化"
-	@echo "  seed              初始化种子数据"
-	@echo "  migration         生成数据库迁移"
-	@echo "  migrate           执行数据库迁移"
+	@echo "生产环境:"
+	@echo "  build    构建所有Docker镜像"
+	@echo "  up       启动生产环境"
+	@echo "  down     停止生产环境"
+	@echo "  logs     查看生产环境日志"
+	@echo ""
+	@echo "开发环境:"
+	@echo "  dev      启动开发环境"
+	@echo "  dev-down 停止开发环境"
+	@echo "  dev-logs 查看开发环境日志"
+	@echo "  frontend-dev 启动前端开发服务器"
+	@echo "  backend-dev  启动后端开发服务器"
+	@echo ""
+	@echo "数据迁移:"
+	@echo "  migrate      启动完整环境并执行数据迁移"
+	@echo "  migrate-only 仅执行数据迁移（需要MySQL已运行）"
+	@echo ""
+	@echo "数据库检查:"
+	@echo "  check-db  检查当前数据库配置和类型"
+	@echo ""
+	@echo "其他:"
+	@echo "  clean    清理所有容器和镜像"
+	@echo "  db-reset 重置数据库"
 
-# 安装开发依赖
-install:
-	@echo "正在安装后端依赖..."
-	cd backend && pip install -r requirements.txt
-	@echo "正在安装前端依赖..."
-	cd frontend && npm install
-	@echo "依赖安装完成！"
+build: ## 构建所有Docker镜像
+	docker-compose build
 
-# 启动完整开发环境
-dev:
-	@echo "启动完整开发环境..."
-	docker-compose -f docker-compose.dev.yml up -d db minio
-	@echo "等待数据库启动..."
-	sleep 10
-	@echo "启动后端服务..."
-	$(MAKE) dev-backend &
-	@echo "启动前端服务..."
-	$(MAKE) dev-frontend &
-	wait
-
-# 启动后端开发服务器
-dev-backend:
-	@echo "启动后端开发服务器..."
-	cd backend && \
-	export PYTHONPATH=. && \
-	uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-
-# 启动前端开发服务器
-dev-frontend:
-	@echo "启动前端开发服务器..."
-	cd frontend && npm run dev
-
-# 构建Docker镜像
-build:
-	@echo "构建Docker镜像..."
-	docker-compose build --no-cache
-
-# 启动Docker Compose服务
-up:
-	@echo "启动Docker Compose服务..."
+up: ## 启动生产环境
 	docker-compose up -d
-	@echo "服务已启动！"
-	@echo "前端访问地址: http://localhost"
-	@echo "后端API地址: http://localhost:8000"
-	@echo "API文档地址: http://localhost:8000/api/docs"
 
-# 停止Docker Compose服务
-down:
-	@echo "停止Docker Compose服务..."
+down: ## 停止生产环境
 	docker-compose down
 
-# 清理Docker资源
-clean:
-	@echo "清理Docker资源..."
-	docker-compose down -v --remove-orphans
-	docker system prune -f
-	docker volume prune -f
-
-# 查看服务日志
-logs:
+logs: ## 查看生产环境日志
 	docker-compose logs -f
 
-# 运行测试
-test:
-	@echo "运行后端测试..."
-	cd backend && python -m pytest tests/ -v
-	@echo "运行前端测试..."
-	cd frontend && npm run test
+dev: ## 启动开发环境
+	docker-compose -f docker-compose.dev.yml up -d
 
-# 代码检查
-lint:
-	@echo "后端代码检查..."
-	cd backend && ruff check . && mypy .
-	@echo "前端代码检查..."
-	cd frontend && npm run lint
+dev-down: ## 停止开发环境
+	docker-compose -f docker-compose.dev.yml down
 
-# 代码格式化
-format:
-	@echo "格式化后端代码..."
-	cd backend && black . && ruff format .
-	@echo "格式化前端代码..."
-	cd frontend && npm run format
+dev-logs: ## 查看开发环境日志
+	docker-compose -f docker-compose.dev.yml logs -f
 
-# 生成数据库迁移
-migration:
-	@echo "生成数据库迁移..."
-	cd backend && alembic revision --autogenerate -m "$(MSG)"
+clean: ## 清理所有容器和镜像
+	docker-compose down -v --rmi all
+	docker-compose -f docker-compose.dev.yml down -v --rmi all
+	docker system prune -f
 
-# 执行数据库迁移
-migrate:
-	@echo "执行数据库迁移..."
-	cd backend && alembic upgrade head
+db-reset: ## 重置数据库
+	docker-compose down -v
+	docker volume rm voicematch_mysql_data || true
+	docker-compose up -d db
 
-# 初始化种子数据
-seed:
-	@echo "初始化种子数据..."
-	cd backend && python scripts/seed_data.py
+frontend-dev: ## 启动前端开发服务器
+	cd frontend && npm run dev
 
-# Docker Compose开发版
-dev-docker:
-	@echo "启动Docker开发环境..."
-	docker-compose -f docker-compose.dev.yml up --build
+backend-dev: ## 启动后端开发服务器
+	cd backend && uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
-# 备份数据库
-backup:
-	@echo "备份数据库..."
-	docker exec voicematch_db mysqldump -u root -pvoicematch123 voicematch > backup_$(shell date +%Y%m%d_%H%M%S).sql
+migrate: ## 启动完整环境并执行数据迁移
+	docker-compose up -d db
+	sleep 30
+	docker-compose --profile migrate up migrate
+	docker-compose up -d
 
-# 恢复数据库
-restore:
-	@if [ -z "$(FILE)" ]; then echo "请指定备份文件: make restore FILE=backup.sql"; exit 1; fi
-	@echo "恢复数据库..."
-	docker exec -i voicematch_db mysql -u root -pvoicematch123 voicematch < $(FILE)
+migrate-only: ## 仅执行数据迁移（需要MySQL已运行）
+	docker-compose --profile migrate up migrate
+
+check-db: ## 检查当前数据库配置和类型
+	cd backend && python check_db.py

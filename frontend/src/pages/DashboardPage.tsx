@@ -9,14 +9,29 @@ import { useQuery } from '@tanstack/react-query'
 import { Users, Command, AudioLines, Activity } from 'lucide-react'
 
 import { apiClient } from '../api/client'
+import type { PatientListResponse } from '../types/patient'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/Card'
 import LoadingSpinner from '../components/ui/LoadingSpinner'
+import { useAuth } from '../contexts/AuthContext'
 
 const DashboardPage: React.FC = () => {
+  const { user } = useAuth()
+  
   // 获取医生指令统计
   const { data: stats, isLoading: statsLoading } = useQuery({
     queryKey: ['doctor-stats'],
     queryFn: () => apiClient.getDoctorCommandStats(),
+  })
+
+  // 获取患者列表（用于概览）
+  const { data: patientsData } = useQuery<PatientListResponse>({
+    queryKey: ['patients', 1, 'dashboard'],
+    queryFn: () => apiClient.getPatients({ page: 1, size: 20 }),
+  })
+
+  const { data: recentPatients } = useQuery({
+    queryKey: ['recent-patients'],
+    queryFn: () => apiClient.getDoctorRecentPatients(3),
   })
 
   if (statsLoading) {
@@ -30,10 +45,10 @@ const DashboardPage: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* 页面标题 */}
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">仪表板</h1>
-        <p className="text-muted-foreground">
-          欢迎回来，{stats?.doctor_name || '医生'}！这里是您的工作概览。
+      <div className="min-w-0">
+        <h1 className="text-3xl font-bold tracking-tight cjk-text">仪表板</h1>
+        <p className="text-muted-foreground cjk-text">
+          欢迎回来，{user?.username || '医生'}！这里是您的工作概览。
         </p>
       </div>
 
@@ -108,21 +123,21 @@ const DashboardPage: React.FC = () => {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {stats?.patients?.map((patient) => (
+              {(recentPatients && recentPatients.length > 0 ? recentPatients : patientsData?.items?.slice(0, 5) || []).map((patient: any) => (
                 <div
-                  key={patient.patient_id}
+                  key={patient.id}
                   className="flex items-center justify-between p-3 rounded-lg border"
                 >
                   <div>
-                    <h4 className="font-medium">{patient.patient_name}</h4>
+                    <h4 className="font-medium">{patient.name}</h4>
                     <p className="text-sm text-muted-foreground">
-                      {patient.patient_gender === 'M' ? '男' : 
-                       patient.patient_gender === 'F' ? '女' : '其他'}
+                      {patient.gender === 'MALE' ? '男' : 
+                       patient.gender === 'FEMALE' ? '女' : '其他'}
                     </p>
                   </div>
                   <div className="text-right">
                     <div className="text-2xl font-bold text-primary">
-                      {patient.total_commands}
+                      {typeof patient.total_commands === 'number' ? patient.total_commands : '-'}
                     </div>
                     <p className="text-xs text-muted-foreground">
                       指令数量
@@ -131,7 +146,7 @@ const DashboardPage: React.FC = () => {
                 </div>
               ))}
               
-              {(!stats?.patients || stats.patients.length === 0) && (
+              {(!patientsData?.items || patientsData.items.length === 0) && (
                 <div className="text-center py-8 text-muted-foreground">
                   <Users className="h-12 w-12 mx-auto mb-4 opacity-50" />
                   <p>还没有患者，去创建第一个患者吧！</p>
@@ -155,9 +170,9 @@ const DashboardPage: React.FC = () => {
                 className="w-full flex items-center gap-3 p-3 rounded-lg border hover:bg-accent transition-colors"
               >
                 <Users className="h-5 w-5 text-primary" />
-                <div className="text-left">
-                  <h4 className="font-medium">管理患者</h4>
-                  <p className="text-sm text-muted-foreground">查看和编辑患者信息</p>
+                <div className="text-left min-w-0">
+                  <h4 className="font-medium cjk-text break-words">管理患者</h4>
+                  <p className="text-sm text-muted-foreground cjk-text">查看和编辑患者信息</p>
                 </div>
               </button>
               
@@ -166,9 +181,9 @@ const DashboardPage: React.FC = () => {
                 className="w-full flex items-center gap-3 p-3 rounded-lg border hover:bg-accent transition-colors"
               >
                 <Command className="h-5 w-5 text-primary" />
-                <div className="text-left">
-                  <h4 className="font-medium">指令库</h4>
-                  <p className="text-sm text-muted-foreground">管理术中指令</p>
+                <div className="text-left min-w-0">
+                  <h4 className="font-medium cjk-text break-words">指令库</h4>
+                  <p className="text-sm text-muted-foreground cjk-text">管理术中指令</p>
                 </div>
               </button>
               
@@ -177,9 +192,9 @@ const DashboardPage: React.FC = () => {
                 className="w-full flex items-center gap-3 p-3 rounded-lg border hover:bg-accent transition-colors"
               >
                 <AudioLines className="h-5 w-5 text-primary" />
-                <div className="text-left">
-                  <h4 className="font-medium">术中控制台</h4>
-                  <p className="text-sm text-muted-foreground">实时语音播放</p>
+                <div className="text-left min-w-0">
+                  <h4 className="font-medium cjk-text break-words">术中控制台</h4>
+                  <p className="text-sm text-muted-foreground cjk-text">实时语音播放</p>
                 </div>
               </button>
             </div>

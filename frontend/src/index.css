@@ -74,3 +74,33 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* 18:9 与窄屏优化：避免中文逐字换行，启用正常换行 */
+/* 仅在需要的文本容器上使用 .cjk-text，避免全局误伤 */
+.cjk-text {
+  /* 尽量保持中文不被随意拆分 */
+  word-break: keep-all;
+  /* 超长英文/URL等才换行 */
+  overflow-wrap: break-word;
+  /* 浏览器默认/自动的中文换行策略 */
+  line-break: auto;
+  white-space: normal;
+}
+
+/* 表头/按钮行在窄屏可换行，避免被挤没 */
+.actions-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+/* 表格容器在窄屏支持横向滚动，防止按钮被遮挡 */
+.table-scroll {
+  overflow-x: auto;
+}
+
+/* 强制横排文本，避免被竖排规则误伤 */
+.text-horizontal {
+  writing-mode: horizontal-tb !important;
+  text-orientation: mixed !important;
+}

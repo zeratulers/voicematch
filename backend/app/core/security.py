@@ -206,7 +206,13 @@ def require_role(required_role: UserRole):
     async def role_checker(
         current_user: User = Depends(get_current_active_user)
     ) -> User:
-        if current_user.role != required_role and current_user.role != UserRole.ADMIN:
+        # 统一为字符串值进行比较，兼容SQLAlchemy返回Enum或字符串的情况
+        current_role_value = (
+            current_user.role.value if hasattr(current_user.role, "value") else current_user.role
+        )
+        # 数据库存储为大写
+        current_role_norm = str(current_role_value).upper()
+        if current_role_norm != required_role.value.upper() and current_role_norm != UserRole.ADMIN.value.upper():
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="权限不足"

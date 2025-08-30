@@ -19,15 +19,51 @@ from app.core.security import (
 )
 from app.models.user import User
 from app.schemas.user import (
-    LoginRequest, 
-    LoginResponse, 
-    RefreshTokenRequest, 
-    TokenResponse, 
-    UserResponse
+    LoginRequest,
+    LoginResponse,
+    RefreshTokenRequest,
+    TokenResponse,
+    UserResponse,
+    UserRole as SchemaUserRole,
 )
 
 router = APIRouter()
+@router.post("/change-password", summary="用户修改自己的密码")
+async def change_password(
+    payload: dict,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    当前登录用户修改自己的密码
+    Body: { "old_password": str, "new_password": str }
+    """
+    old_password = payload.get("old_password")
+    new_password = payload.get("new_password")
+    if not old_password or not new_password:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="参数不完整")
 
+    # 校验旧密码
+    if not verify_password(old_password, current_user.password_hash):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="旧密码不正确")
+
+    # 更新新密码
+    current_user.password_hash = create_password_hash(new_password)
+    await db.commit()
+
+    return {"message": "密码修改成功"}
+
+
+def build_user_response(user: User) -> UserResponse:
+    """将ORM用户对象转换为API响应，规范化角色为小写（Schema期望'admin'/'doctor'）。"""
+    role_lower = str(user.role).lower() if user.role is not None else "doctor"
+    return UserResponse(
+        id=user.id,
+        username=user.username,
+        role=SchemaUserRole(role_lower),
+        is_active=user.is_active,
+        created_at=user.created_at,
+    )
 
 @router.post("/login", response_model=LoginResponse, summary="用户登录")
 async def login(
@@ -47,12 +83,14 @@ async def login(
     
     # 验证用户和密码
     if not user or not verify_password(login_data.password, user.password_hash):
+        # 返回401，前端已有针对性提示
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="用户名或密码错误"
         )
     
     if not user.is_active:
+        # 返回401，前端已有针对性提示
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="用户未激活"
@@ -65,7 +103,7 @@ async def login(
     return LoginResponse(
         access_token=access_token,
         refresh_token=refresh_token,
-        user=UserResponse.model_validate(user)
+        user=build_user_response(user),
     )
 
 
@@ -112,12 +150,12 @@ async def refresh_token(
 
 @router.get("/me", response_model=UserResponse, summary="获取当前用户信息")
 async def get_current_user_info(
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ):
     """
     获取当前登录用户的信息
     """
-    return UserResponse.model_validate(current_user)
+    return build_user_response(current_user)
 
 
 @router.post("/logout", summary="用户登出")

@@ -21,6 +21,9 @@ class UserBase(BaseModel):
     username: str = Field(..., min_length=3, max_length=50, description="用户名")
     role: UserRole = Field(default=UserRole.DOCTOR, description="用户角色")
     is_active: bool = Field(default=True, description="是否激活")
+    # 可选的医生信息
+    full_name: Optional[str] = Field(default=None, description="医生真实姓名")
+    department: Optional[str] = Field(default=None, description="科室")
 
 
 class UserCreate(UserBase):
@@ -34,6 +37,8 @@ class UserUpdate(BaseModel):
     password: Optional[str] = Field(None, min_length=6, max_length=128, description="新密码")
     role: Optional[UserRole] = Field(None, description="用户角色")
     is_active: Optional[bool] = Field(None, description="是否激活")
+    full_name: Optional[str] = Field(None, description="医生真实姓名")
+    department: Optional[str] = Field(None, description="科室")
 
 
 class UserInDB(UserBase):

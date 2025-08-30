@@ -16,12 +16,40 @@ services:
     volumes:
       - mysql_data:/var/lib/mysql
       - ./deploy/mysql/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./backend/voicematch.db:/tmp/voicematch.db:ro
     networks:
       - voicematch-network
     command: >
       --character-set-server=utf8mb4
       --collation-server=utf8mb4_unicode_ci
       --max_connections=1000
+
+  # 数据迁移服务（一次性运行）
+  migrate:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: voicematch_migrate
+    environment:
+      MYSQL_HOST: db
+      MYSQL_USER: ${MYSQL_USER:-voicematch}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-voicematch123}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-voicematch}
+    volumes:
+      - ./backend/voicematch.db:/app/voicematch.db:ro
+    networks:
+      - voicematch-network
+    depends_on:
+      - db
+    command: >
+      sh -c "
+        echo '等待MySQL启动...' &&
+        sleep 30 &&
+        python scripts/migrate_sqlite_to_mysql.py &&
+        echo '数据迁移完成！'
+      "
+    profiles:
+      - migrate
 
   # MinIO 对象存储服务（可选）
   minio:
@@ -53,19 +81,49 @@ services:
     container_name: voicematch_api
     restart: unless-stopped
     environment:
-      DATABASE_URL: mysql+aiomysql://${MYSQL_USER:-voicematch}:${MYSQL_PASSWORD:-voicematch123}@db:3306/${MYSQL_DATABASE:-voicematch}
-      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-your-super-secret-jwt-key-change-this-in-production}
+      # 基本应用设置
+      APP_NAME: ${APP_NAME:-VoiceMatch术中语音指令播放系统}
+      DEBUG: ${DEBUG:-false}
       SECRET_KEY: ${SECRET_KEY:-your-super-secret-key-change-this-in-production}
+      
+      # 数据库配置
+      DATABASE_URL: mysql+aiomysql://${MYSQL_USER:-voicematch}:${MYSQL_PASSWORD:-voicematch123}@db:3306/${MYSQL_DATABASE:-voicematch}
+      
+      # JWT配置
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-your-super-secret-jwt-key-change-this-in-production}
+      JWT_ACCESS_TOKEN_EXPIRE_MINUTES: ${JWT_ACCESS_TOKEN_EXPIRE_MINUTES:-30}
+      JWT_REFRESH_TOKEN_EXPIRE_DAYS: ${JWT_REFRESH_TOKEN_EXPIRE_DAYS:-7}
+      JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
+      
+      # CORS配置
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost,http://localhost:3000,http://127.0.0.1}
+      
+      # 存储配置
       STORAGE_BACKEND: ${STORAGE_BACKEND:-local}
+      AUDIO_STORAGE_PATH: ${AUDIO_STORAGE_PATH:-./data/audio}
+      
+      # MinIO配置
       MINIO_ENDPOINT: ${MINIO_ENDPOINT:-minio:9000}
       MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-voicematch}
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-voicematch123}
       MINIO_BUCKET: ${MINIO_BUCKET:-voicematch-audio}
-      DEBUG: ${DEBUG:-false}
+      MINIO_SECURE: ${MINIO_SECURE:-false}
+      
+      # 文件上传限制
+      MAX_UPLOAD_SIZE: ${MAX_UPLOAD_SIZE:-52428800}
+      MAX_AUDIO_DURATION: ${MAX_AUDIO_DURATION:-300}
+      ALLOWED_AUDIO_FORMATS: ${ALLOWED_AUDIO_FORMATS:-wav,mp3,opus,m4a,webm}
+      
+      # 数据保留配置
+      RETENTION_DAYS: ${RETENTION_DAYS:-365}
+      
+      # 安全配置
+      BCRYPT_ROUNDS: ${BCRYPT_ROUNDS:-12}
     ports:
       - "8000:8000"
     volumes:
       - audio_data:/app/data
+      - ./backend/voicematch.db:/app/voicematch.db:ro
     networks:
       - voicematch-network
     depends_on:
@@ -87,12 +145,16 @@ services:
       - "80:80"
       - "443:443"
     volumes:
-      - ./deploy/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./deploy/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./frontend/nginx.conf:/etc/nginx/nginx.conf:ro
     networks:
       - voicematch-network
     depends_on:
       - api
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
 volumes:
   mysql_data:

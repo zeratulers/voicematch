@@ -6,7 +6,7 @@
 
 import React, { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Search, Plus, Command as CommandIcon, Filter, Edit2, Trash2, Eye, Users } from 'lucide-react'
+import { Search, Plus, Command as CommandIcon, Filter, Trash2, Eye, Users } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { toast } from 'sonner'
 
@@ -106,21 +106,21 @@ const CommandsPage: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* 页面标题和操作 */}
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">指令库</h1>
-          <p className="text-muted-foreground">
+      <div className="flex justify-between items-center gap-2">
+        <div className="min-w-0">
+          <h1 className="text-3xl font-bold tracking-tight cjk-text">指令库</h1>
+          <p className="text-muted-foreground cjk-text">
             管理所有可用的指令和方言变体
           </p>
         </div>
-        <Button onClick={() => setIsCreateDialogOpen(true)}>
+        <Button onClick={() => setIsCreateDialogOpen(true)} className="shrink-0">
           <Plus className="h-4 w-4 mr-2" />
           创建指令
         </Button>
       </div>
 
       {/* 搜索和过滤 */}
-      <Card>
+      <Card className="sticky top-0 z-20 bg-white/80 backdrop-blur border shadow-sm">
         <CardHeader>
           <CardTitle className="flex items-center">
             <Filter className="h-5 w-5 mr-2" />
@@ -190,15 +190,15 @@ const CommandsPage: React.FC = () => {
               {commandsData.items.map((command) => (
                 <div
                   key={command.id}
-                  className="flex items-center justify-between p-4 rounded-lg border hover:bg-accent/50 transition-colors"
+                  className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 p-4 rounded-lg border hover:bg-accent/50 transition-colors"
                 >
-                  <div className="flex items-center space-x-4 flex-1">
+                  <div className="flex items-center gap-4 flex-1 min-w-0 w-full">
                     <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center">
                       <CommandIcon className="h-6 w-6 text-primary" />
                     </div>
-                    <div className="flex-1">
-                      <div className="flex items-center space-x-2 mb-1">
-                        <h3 className="font-medium">{command.content}</h3>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1">
+                        <h3 className="font-medium cjk-text break-words">{command.content}</h3>
                         {getCommandTypeBadge(command)}
                         {!command.is_active && (
                           <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-600">
@@ -206,7 +206,7 @@ const CommandsPage: React.FC = () => {
                           </span>
                         )}
                       </div>
-                      <div className="text-sm text-muted-foreground space-y-1">
+                      <div className="text-sm text-muted-foreground space-y-1 cjk-text">
                         {command.description && (
                           <p>描述：{command.description}</p>
                         )}
@@ -216,11 +216,12 @@ const CommandsPage: React.FC = () => {
                     </div>
                   </div>
                   
-                  <div className="flex items-center space-x-2">
+                  <div className="grid grid-cols-1 md:flex md:flex-wrap gap-2 w-full md:w-auto md:self-auto self-end" aria-label="action group">
                     <Button
                       variant="outline"
                       size="sm"
                       asChild
+                      className="w-full md:w-auto"
                     >
                       <Link to={`/commands/${command.id}`}>
                         <Eye className="h-4 w-4" />
@@ -233,6 +234,7 @@ const CommandsPage: React.FC = () => {
                         <Button
                           variant="outline"
                           size="sm"
+                          className="w-full md:w-auto"
                           onClick={() => updateCommandMutation.mutate({
                             commandId: command.id,
                             isActive: !command.is_active
@@ -242,23 +244,14 @@ const CommandsPage: React.FC = () => {
                           {command.is_active ? '禁用' : '启用'}
                         </Button>
                         
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => {
-                            // TODO: 实现编辑功能
-                            toast.info('编辑功能开发中')
-                          }}
-                        >
-                          <Edit2 className="h-4 w-4" />
-                        </Button>
+
                         
                         <Button
                           variant="outline"
                           size="sm"
+                          className="w-full md:w-auto text-red-600 hover:text-red-700"
                           onClick={() => handleDeleteCommand(command)}
                           disabled={deleteCommandMutation.isPending}
-                          className="text-red-600 hover:text-red-700"
                         >
                           <Trash2 className="h-4 w-4" />
                         </Button>

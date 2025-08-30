@@ -20,6 +20,9 @@ from .patient_command_assignment import PatientCommandAssignment
 # 审计日志模型
 from .audit_log import AuditLog
 
+# 语音日志模型
+from .voice_log import VoiceLog
+
 __all__ = [
     "User",
     "UserRole", 
@@ -31,4 +34,5 @@ __all__ = [
     "PatientCommandAssignment",
     "SystemSetting",
     "AuditLog",
+    "VoiceLog",
 ]

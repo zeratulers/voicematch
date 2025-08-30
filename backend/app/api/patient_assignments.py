@@ -41,7 +41,8 @@ async def get_patient_assignments(
     """
     # 检查患者是否存在和权限
     patient_query = select(Patient).filter(Patient.id == patient_id)
-    if current_user.role.value != "admin":
+    current_role = (current_user.role.value if hasattr(current_user.role, "value") else current_user.role)
+    if str(current_role).lower() != "admin":
         patient_query = patient_query.filter(Patient.doctor_id == current_user.id)
     
     patient_result = await db.execute(patient_query)
@@ -94,7 +95,8 @@ async def create_assignment(
     """
     # 检查患者是否存在和权限
     patient_query = select(Patient).filter(Patient.id == assignment_data.patient_id)
-    if current_user.role.value != "admin":
+    current_role = (current_user.role.value if hasattr(current_user.role, "value") else current_user.role)
+    if str(current_role).lower() != "admin":
         patient_query = patient_query.filter(Patient.doctor_id == current_user.id)
     
     patient_result = await db.execute(patient_query)
@@ -184,7 +186,8 @@ async def update_assignment(
     )
     
     # 权限控制：只能修改自己分配的或管理员
-    if current_user.role.value != "admin":
+    current_role = (current_user.role.value if hasattr(current_user.role, "value") else current_user.role)
+    if str(current_role).lower() != "admin":
         query = query.filter(PatientCommandAssignment.assigned_by == current_user.id)
     
     result = await db.execute(query)
@@ -240,7 +243,8 @@ async def delete_assignment(
     )
     
     # 权限控制
-    if current_user.role.value != "admin":
+    current_role = (current_user.role.value if hasattr(current_user.role, "value") else current_user.role)
+    if str(current_role).lower() != "admin":
         query = query.filter(PatientCommandAssignment.assigned_by == current_user.id)
     
     result = await db.execute(query)
@@ -269,7 +273,8 @@ async def batch_create_assignments(
     """
     # 检查患者是否存在和权限
     patient_query = select(Patient).filter(Patient.id == batch_data.patient_id)
-    if current_user.role.value != "admin":
+    current_role = (current_user.role.value if hasattr(current_user.role, "value") else current_user.role)
+    if str(current_role).lower() != "admin":
         patient_query = patient_query.filter(Patient.doctor_id == current_user.id)
     
     patient_result = await db.execute(patient_query)

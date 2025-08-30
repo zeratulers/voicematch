@@ -49,6 +49,15 @@ interface ModernVoiceControlProps {
   onStateChange?: (state: VoiceControlState) => void
   onTranscriptChange?: (transcript: string) => void
   onCommandPlayed?: (content: string) => void
+  onVoiceLog?: (log: {
+    transcript: string
+    confidence: number
+    status: 'success' | 'no_match' | 'error' | 'aborted'
+    matched_command_id?: string
+    matched_command_content?: string
+    matched_confidence?: number
+    processing_time_ms?: number
+  }) => void
   wakeWords?: string[]
   enabled?: boolean
   className?: string
@@ -62,6 +71,7 @@ const ModernVoiceControl: React.FC<ModernVoiceControlProps> = ({
   onStateChange,
   onTranscriptChange,
   onCommandPlayed,
+  onVoiceLog,
   wakeWords = ['发出指令', '播放指令', '开始指令', '测试拼音'],
   enabled = true,
   className = '',
@@ -491,10 +501,48 @@ const ModernVoiceControl: React.FC<ModernVoiceControlProps> = ({
       } else {
         console.log('⏸️ 跳过指令检查 - 条件不满足')
       }
+
+      // 记录语音识别日志（无论结果如何）
+      if (fullTranscript && fullTranscript.trim()) {
+        let logStatus: 'success' | 'no_match' = 'no_match'
+        let logConfidence = 0.5 // 默认置信度
+        
+        // 如果匹配到唤醒词，记录为成功
+        if (stateRef.current === 'listening' && fullTranscript) {
+          const hasWakeWord = wakeWords.some(word => {
+            const matchResult = checkWakeWordMatch(fullTranscript, word)
+            return matchResult.matched
+          })
+          if (hasWakeWord) {
+            logStatus = 'success'
+            logConfidence = 0.8
+          }
+        }
+        
+        const logData = {
+          transcript: fullTranscript.trim(),
+          confidence: logConfidence,
+          status: logStatus,
+          processing_time_ms: 0
+        }
+        
+        console.log('📝 记录语音识别日志:', logData)
+        onVoiceLog?.(logData)
+      }
     }
 
     recognition.onerror = (event) => {
       console.error('语音识别错误:', event.error)
+      
+      // 记录语音识别错误日志
+      if (transcript && transcript.trim()) {
+        onVoiceLog?.({
+          transcript: transcript.trim(),
+          confidence: confidence,
+          status: 'error',
+          processing_time_ms: 0
+        })
+      }
     }
 
          // [REFACTORED] 简化 onend 逻辑
@@ -504,6 +552,16 @@ const ModernVoiceControl: React.FC<ModernVoiceControlProps> = ({
          isRecording: isRecordingRef.current, 
          isRestarting: isRestartingRef.current 
        });
+       
+       // 如果当前有转录文本，记录被中断的日志
+       if (transcript && transcript.trim()) {
+         onVoiceLog?.({
+           transcript: transcript.trim(),
+           confidence: confidence,
+           status: 'aborted',
+           processing_time_ms: 0
+         })
+       }
        
        // 只要还在录音模式，并且不是我们主动发起的重启，就尝试恢复
        if (isRecordingRef.current && !isRestartingRef.current) {
@@ -667,12 +725,22 @@ const ModernVoiceControl: React.FC<ModernVoiceControlProps> = ({
       console.error('分类器未初始化')
       playNotificationSound('error')
       updateState('listening')
+      
+      // 记录错误日志
+      onVoiceLog?.({
+        transcript: commandText,
+        confidence: 0,
+        status: 'error',
+        processing_time_ms: 0
+      })
       return
     }
 
     try {
       console.log('🔍 开始分类指令文本:', commandText)
+      const startTime = Date.now()
       const results = await classifierRef.current.classifyTranscript(commandText)
+      const processingTime = Date.now() - startTime
       setClassificationResults(results)
 
       if (results.length > 0) {
@@ -682,12 +750,32 @@ const ModernVoiceControl: React.FC<ModernVoiceControlProps> = ({
         if (bestMatch.confidence > 0.4) {
           // 置信度足够，直接播放
           console.log('✅ 置信度足够，直接播放:', bestMatch.content)
+          
+          // 记录成功匹配日志
+          onVoiceLog?.({
+            transcript: commandText,
+            confidence: bestMatch.confidence,
+            status: 'success',
+            matched_command_id: bestMatch.command_id,
+            matched_command_content: bestMatch.content,
+            matched_confidence: bestMatch.confidence,
+            processing_time_ms: processingTime
+          })
+          
           await executeCommand(bestMatch)
         } else {
           // [MODIFIED] 置信度不够，使用新的重置函数
           console.log('❓ 置信度不够，请重新说一遍')
           playNotificationSound('error')
           setClassificationResults([]); // 清除旧结果
+          
+          // 记录置信度不够日志
+          onVoiceLog?.({
+            transcript: commandText,
+            confidence: bestMatch.confidence,
+            status: 'no_match',
+            processing_time_ms: processingTime
+          })
           
           // 延迟后回到 awakened 状态并重启监听
           setTimeout(() => {
@@ -700,6 +788,14 @@ const ModernVoiceControl: React.FC<ModernVoiceControlProps> = ({
         playNotificationSound('error')
         setClassificationResults([]);
         
+        // 记录无匹配日志
+        onVoiceLog?.({
+          transcript: commandText,
+          confidence: 0,
+          status: 'no_match',
+          processing_time_ms: processingTime
+        })
+        
         setTimeout(() => {
           resetToAwakenedState('没有匹配的指令，请重试');
         }, 1500);
@@ -708,6 +804,14 @@ const ModernVoiceControl: React.FC<ModernVoiceControlProps> = ({
       // [MODIFIED] 分类失败，也回到 awakened 状态并重启
       console.error('指令分类失败:', error)
       playNotificationSound('error')
+      
+      // 记录错误日志
+      onVoiceLog?.({
+        transcript: commandText,
+        confidence: 0,
+        status: 'error',
+        processing_time_ms: 0
+      })
       
       setTimeout(() => {
         resetToAwakenedState('处理出错，请重试');

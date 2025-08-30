@@ -16,7 +16,8 @@ import {
   Lock,
   Unlock,
   X,
-  Loader2
+  Loader2,
+  Square
 } from 'lucide-react'
 
 import { apiClient } from '../api/client'
@@ -27,9 +28,10 @@ import LoadingSpinner from '../components/ui/LoadingSpinner'
 import type { Patient } from '../types/patient'
 import { formatGender } from '../utils/gender'
 import { ModernVoiceControl } from '../components/voice'
-import DebugVoiceControl from '../components/voice/DebugVoiceControl'
-
-
+import VoiceControlSettings, { VoiceControlMode } from '../components/voice/VoiceControlSettings'
+import VoiceLogsDisplay from '../components/voice/VoiceLogsDisplay'
+import CommandPlaybackConfirm from '../components/voice/CommandPlaybackConfirm'
+import type { VoiceLogCreate } from '../types/voice-log'
 
 const ORConsolePage: React.FC = () => {
   const [selectedPatient, setSelectedPatient] = useState<Patient | null>(null)
@@ -42,7 +44,18 @@ const ORConsolePage: React.FC = () => {
   const [preloadProgress, setPreloadProgress] = useState(0)
   
   // 语音控制相关状态
+  const [voiceControlMode, setVoiceControlMode] = useState<VoiceControlMode>('offline')
   const [voiceControlEnabled, setVoiceControlEnabled] = useState(false)
+  
+  // 指令播放确认界面状态
+  const [showPlaybackConfirm, setShowPlaybackConfirm] = useState(false)
+  const [pendingCommand, setPendingCommand] = useState<any>(null)
+  const [isPlaying, setIsPlaying] = useState(false)
+  const [currentAudio, setCurrentAudio] = useState<HTMLAudioElement | null>(null)
+  
+  // 语音日志相关状态
+  const [voiceLogs, setVoiceLogs] = useState<VoiceLogCreate[]>([])
+  const [lastUploadTime, setLastUploadTime] = useState<number>(Date.now())
 
   // 使用ref保存最新状态，避免闭包问题
   const stateRef = useRef({
@@ -83,95 +96,47 @@ const ORConsolePage: React.FC = () => {
     enabled: !!selectedPatient,
   })
 
-
-
   // 患者选择和锁定相关函数
   const handleSelectPatient = (patient: Patient) => {
     if (!isPatientLocked) {
       setSelectedPatient(patient)
       setShowPatientSearch(false)
       setPatientSearchTerm('')
+      // 清空语音日志缓存
+      setVoiceLogs([])
+      setLastUploadTime(Date.now())
     }
   }
 
-  // 新版本不需要配置动态命令，使用唤醒词+命令窗口模式
-
   const handleLockPatient = async () => {
     if (selectedPatient) {
-      console.log('🔒 锁定患者:', selectedPatient.name)
       setIsPatientLocked(true)
+      stateRef.current.isPatientLocked = true
+      stateRef.current.selectedPatient = selectedPatient
       
-      // 锁定患者后预加载音频
-      setTimeout(async () => {
-        await preloadAudioFiles()
-      }, 100)
+      // 预加载音频文件
+      await preloadAudioFiles()
     }
   }
 
   const handleUnlockPatient = () => {
-    console.log('🔓 解锁患者，停止所有活动')
+    // 停止当前播放的音频
+    if (currentAudio) {
+      currentAudio.pause()
+      currentAudio.currentTime = 0
+      setCurrentAudio(null)
+    }
+    
+    setIsPlaying(false)
+    setShowPlaybackConfirm(false)
+    setPendingCommand(null)
     setIsPatientLocked(false)
+    stateRef.current.isPatientLocked = false
+    stateRef.current.selectedPatient = null
     
-    // 清理状态
-    setAudioCache(new Map())
-    setPreloadProgress(0)
-    setLastPlayedCommand(null)
-    setVoiceControlEnabled(false)
+    // 上传语音日志
+    uploadVoiceLogs()
   }
-
-  const handleClearPatient = () => {
-    if (!isPatientLocked) {
-      setSelectedPatient(null)
-      setShowPatientSearch(false)
-      setPatientSearchTerm('')
-    }
-  }
-
-  const formatDate = (dateString?: string) => {
-    if (!dateString) return '-'
-    return new Date(dateString).toLocaleDateString('zh-CN')
-  }
-
-  // 本地播放音频
-  const playLocalAudio = useCallback((commandId: string, commandContent: string) => {
-    console.log('🎵 播放音频:', commandContent)
-    
-    const audio = stateRef.current.audioCache.get(commandId)
-    if (audio) {
-      audio.currentTime = 0
-      audio.play().then(() => {
-        setLastPlayedCommand(commandContent)
-        console.log('✅ 播放成功:', commandContent)
-      }).catch(console.error)
-    } else {
-      console.error('❌ 未找到音频文件:', commandId)
-    }
-  }, [])
-
-
-
-
-
-  // 同步状态到ref，避免闭包问题
-  useEffect(() => {
-    stateRef.current = {
-      isPatientLocked,
-      playableCommands,
-      audioCache,
-      selectedPatient
-    }
-    
-    console.log('📊 状态更新到ref:', {
-      isPatientLocked,
-      hasCommands: !!playableCommands?.commands,
-      commandsCount: playableCommands?.commands?.length || 0,
-      totalCommands: playableCommands?.total_commands || 0,
-      cacheSize: audioCache.size,
-      selectedPatient: selectedPatient?.name
-    })
-  }, [isPatientLocked, playableCommands, audioCache, selectedPatient])
-
-
 
   // 预加载音频文件
   const preloadAudioFiles = async () => {
@@ -180,89 +145,178 @@ const ORConsolePage: React.FC = () => {
     setIsPreloadingAudio(true)
     setPreloadProgress(0)
     
-    const newAudioCache = new Map<string, HTMLAudioElement>()
-    const commands = playableCommands.commands
+    const newAudioCache = new Map()
+    const totalCommands = playableCommands.commands.length
     
-    for (let i = 0; i < commands.length; i++) {
-      const command = commands[i]
+    for (let i = 0; i < totalCommands; i++) {
+      const command = playableCommands.commands[i]
       try {
         const audio = new Audio(command.audio_url)
+        audio.preload = 'auto'
+        
+        // 等待音频加载完成
         await new Promise((resolve, reject) => {
-          audio.addEventListener('canplaythrough', resolve)
-          audio.addEventListener('error', reject)
+          audio.addEventListener('canplaythrough', resolve, { once: true })
+          audio.addEventListener('error', reject, { once: true })
           audio.load()
         })
+        
         newAudioCache.set(command.command_id, audio)
-        setPreloadProgress(Math.round(((i + 1) / commands.length) * 100))
+        setPreloadProgress(((i + 1) / totalCommands) * 100)
       } catch (error) {
-        console.error(`预加载音频失败: ${command.command_id}`, error)
+        console.warn(`音频预加载失败: ${command.audio_url}`, error)
       }
     }
     
     setAudioCache(newAudioCache)
+    stateRef.current.audioCache = newAudioCache
     setIsPreloadingAudio(false)
   }
 
-
-
-  // playLocalAudio 函数已在前面定义
-
-  const handleManualPlay = async (commandId: string) => {
-    if (!selectedPatient) return
+  // 手动播放指令
+  const handleManualPlay = (commandId: string) => {
+    const command = playableCommands?.commands.find(cmd => cmd.command_id === commandId)
+    if (!command) return
     
-    console.log('🎵 手动播放指令:', commandId)
+    setPendingCommand(command)
+    setShowPlaybackConfirm(true)
+  }
+
+  // 确认播放指令
+  const handleConfirmPlayback = () => {
+    if (!pendingCommand) return
     
-    // 如果患者已锁定且有缓存，直接本地播放
-    if (isPatientLocked && audioCache.size > 0) {
-      const command = playableCommands?.commands?.find(cmd => cmd.command_id === commandId)
-      if (command) {
-        console.log('🎵 使用本地缓存播放')
-        playLocalAudio(commandId, command.content)
-        return
-      }
+    const audio = audioCache.get(pendingCommand.command_id)
+    if (!audio) {
+      console.error('音频文件未找到:', pendingCommand.command_id)
+      return
     }
     
-    // 否则通过API播放
-    try {
-      console.log('🎵 通过API播放')
+    setIsPlaying(true)
+    setCurrentAudio(audio)
+    
+    // 播放音频
+    audio.currentTime = 0
+    audio.play()
+    
+    // 监听播放结束
+    const handleEnded = () => {
+      setIsPlaying(false)
+      setCurrentAudio(null)
+      setShowPlaybackConfirm(false)
+      setPendingCommand(null)
+      setLastPlayedCommand(pendingCommand.content)
       
-      const response = await apiClient.triggerPlayback({
+      // 记录播放日志
+      addVoiceLog({
+        transcript: `手动播放: ${pendingCommand.content}`,
+        confidence: 1.0,
+        status: 'success',
+        matched_command_id: pendingCommand.command_id,
+        matched_command_content: pendingCommand.content,
+        matched_confidence: 1.0,
+        processing_time_ms: 0
+      })
+    }
+    
+    audio.addEventListener('ended', handleEnded, { once: true })
+    
+    // 监听播放错误
+    const handleError = () => {
+      setIsPlaying(false)
+      setCurrentAudio(null)
+      setShowPlaybackConfirm(false)
+      setPendingCommand(null)
+      console.error('音频播放失败:', pendingCommand.audio_url)
+    }
+    
+    audio.addEventListener('error', handleError, { once: true })
+  }
+
+  // 停止播放
+  const handleStopPlayback = () => {
+    if (currentAudio) {
+      currentAudio.pause()
+      currentAudio.currentTime = 0
+      setCurrentAudio(null)
+    }
+    
+    setIsPlaying(false)
+    setShowPlaybackConfirm(false)
+    setPendingCommand(null)
+  }
+
+  // 添加语音日志
+  const addVoiceLog = (log: VoiceLogCreate) => {
+    setVoiceLogs(prev => [...prev, log])
+  }
+
+  // 上传语音日志到后端
+  const uploadVoiceLogs = async () => {
+    if (voiceLogs.length === 0 || !selectedPatient) return
+    
+    try {
+      await apiClient.uploadVoiceLogs({
         patient_id: selectedPatient.id,
-        command_id: commandId
+        logs: voiceLogs
       })
       
-      setLastPlayedCommand(response.command_content)
-      console.log('播放音频:', response.audio_url)
-      
-      // 简单播放音频
-      const audio = new Audio(response.audio_url)
-      audio.play().catch(console.error)
-      
+      // 清空本地日志缓存
+      setVoiceLogs([])
+      setLastUploadTime(Date.now())
     } catch (error) {
-      console.error('播放失败:', error)
+      console.error('上传语音日志失败:', error)
     }
   }
 
-  const handleContentMatch = async (content: string) => {
-    if (!selectedPatient) return
+  // 定期上传语音日志（每30秒）
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (voiceLogs.length > 0 && selectedPatient) {
+        uploadVoiceLogs()
+      }
+    }, 30000)
     
-    try {
-      const response = await apiClient.triggerPlaybackByContent({
-        patient_id: selectedPatient.id,
-        command_content: content
-      })
-      
-      setLastPlayedCommand(response.command_content)
-      console.log('匹配播放:', response.audio_url)
-      
-      // 实际播放音频
-      const audio = new Audio(response.audio_url)
-      audio.play().catch(() => {
-        console.error('音频播放失败')
-      })
-      
-    } catch (error) {
-      console.error('匹配播放失败:', error)
+    return () => clearInterval(interval)
+  }, [voiceLogs, selectedPatient])
+
+  // 语音控制模式变更处理
+  const handleVoiceControlModeChange = (mode: VoiceControlMode) => {
+    setVoiceControlMode(mode)
+    
+    if (mode === 'none') {
+      setVoiceControlEnabled(false)
+    } else if (mode === 'offline') {
+      setVoiceControlEnabled(true)
+    } else if (mode === 'online') {
+      setVoiceControlEnabled(false)
+      // TODO: 实现在线语音控制
+    }
+  }
+
+  // 语音识别结果处理
+  const handleVoiceRecognitionResult = (result: {
+    transcript: string
+    confidence: number
+    matchedCommand?: any
+    processingTime?: number
+  }) => {
+    const log: VoiceLogCreate = {
+      transcript: result.transcript,
+      confidence: result.confidence,
+      status: result.matchedCommand ? 'success' : 'no_match',
+      matched_command_id: result.matchedCommand?.command_id,
+      matched_command_content: result.matchedCommand?.content,
+      matched_confidence: result.matchedCommand ? 0.9 : undefined,
+      processing_time_ms: result.processingTime
+    }
+    
+    addVoiceLog(log)
+    
+    // 如果匹配到指令，显示播放确认界面
+    if (result.matchedCommand) {
+      setPendingCommand(result.matchedCommand)
+      setShowPlaybackConfirm(true)
     }
   }
 
@@ -281,8 +335,8 @@ const ORConsolePage: React.FC = () => {
         <CardHeader>
           <CardTitle className="flex items-center justify-between">
             <div className="flex items-center">
-            <Users className="h-5 w-5 mr-2" />
-            患者选择
+              <Users className="h-5 w-5 mr-2" />
+              患者选择
               {isPatientLocked && (
                 <Lock className="h-4 w-4 ml-2 text-orange-500" />
               )}
@@ -320,112 +374,108 @@ const ORConsolePage: React.FC = () => {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {selectedPatient ? (
-            // 已选择患者的显示
-            <div className={`p-4 rounded-lg border-2 ${
-              isPatientLocked 
-                ? 'border-orange-200 bg-orange-50' 
-                : 'border-blue-200 bg-blue-50'
-            }`}>
-              <div className="flex items-center justify-between">
+          {/* 患者搜索界面 */}
+          {showPatientSearch && (
+            <div className="space-y-4">
+              <div className="flex space-x-2">
+                <Input
+                  placeholder="输入患者姓名搜索..."
+                  value={patientSearchTerm}
+                  onChange={(e) => setPatientSearchTerm(e.target.value)}
+                  className="flex-1"
+                />
+                <Button
+                  variant="outline"
+                  onClick={() => setShowPatientSearch(false)}
+                >
+                  取消
+                </Button>
+              </div>
+              
+              {patientsLoading ? (
+                <div className="text-center py-4">
+                  <Loader2 className="h-6 w-6 animate-spin mx-auto" />
+                </div>
+              ) : patientsData?.items ? (
+                <div className="space-y-2 max-h-60 overflow-y-auto">
+                  {patientsData.items.map((patient) => (
+                    <div
+                      key={patient.id}
+                      className="flex items-center justify-between p-3 border rounded-lg hover:bg-accent/50 cursor-pointer"
+                      onClick={() => handleSelectPatient(patient)}
+                    >
+                      <div>
+                        <p className="font-medium">{patient.name}</p>
+                        <p className="text-sm text-muted-foreground">
+                          {formatGender(patient.gender)} • {patient.date_of_birth}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-8 text-muted-foreground">
+                  <Users className="h-12 w-12 mx-auto mb-2 opacity-50" />
+                  <p>请输入患者姓名进行搜索</p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* 未选择患者时的界面 */}
+          {!selectedPatient && !showPatientSearch && (
+            <div className="text-center">
+              <Button
+                onClick={() => setShowPatientSearch(true)}
+                className="w-full"
+              >
+                <Search className="h-4 w-4 mr-2" />
+                搜索并选择患者
+              </Button>
+            </div>
+          )}
+
+          {/* 已选择患者时的界面 */}
+          {selectedPatient && (
+            <div className="space-y-4">
+              {/* 患者信息 */}
+              <div className="flex items-center justify-between p-4 border rounded-lg bg-muted/50">
                 <div className="flex items-center space-x-4">
-                  <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center">
+                  <div className="w-12 h-12 bg-primary/10 rounded-full flex items-center justify-center">
                     <Users className="h-6 w-6 text-primary" />
                   </div>
                   <div>
-                    <h3 className="font-medium text-lg">{selectedPatient.name}</h3>
-                    <div className="text-sm text-muted-foreground space-y-1">
-                      <p>患者ID：{selectedPatient.id}</p>
-                      <p>性别：{formatGender(selectedPatient.gender)}</p>
-                      <p>出生日期：{formatDate(selectedPatient.date_of_birth)}</p>
-                      {selectedPatient.note && (
-                        <p>备注：{selectedPatient.note}</p>
-                      )}
-                    </div>
+                    <h3 className="font-semibold">{selectedPatient.name}</h3>
+                    <p className="text-sm text-muted-foreground">
+                      {formatGender(selectedPatient.gender)} • {selectedPatient.date_of_birth}
+                    </p>
                   </div>
                 </div>
-                
-                {!isPatientLocked && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleClearPatient}
-                  >
-                    <X className="h-4 w-4 mr-1" />
-                    重新选择
-                  </Button>
-                )}
-              </div>
-              
-              <div className="mt-3 text-sm text-muted-foreground">
-                可播放指令数：{playableCommands?.total_commands || 0}
-              </div>
-            </div>
-          ) : (
-            // 患者选择界面
-            <div className="space-y-4">
-              <div className="flex items-center space-x-2">
-                <Button 
-                  onClick={() => setShowPatientSearch(!showPatientSearch)}
-                  className="flex-shrink-0"
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setSelectedPatient(null)
+                    setShowPatientSearch(false)
+                  }}
                 >
-                  <Search className="h-4 w-4 mr-2" />
-                  {showPatientSearch ? '隐藏搜索' : '搜索患者'}
+                  <X className="h-4 w-4" />
                 </Button>
-                
-                {showPatientSearch && (
-                  <Input
-                    placeholder="输入患者姓名搜索..."
-                    value={patientSearchTerm}
-                    onChange={(e) => setPatientSearchTerm(e.target.value)}
-                    className="flex-1"
-                  />
-                )}
               </div>
 
-              {showPatientSearch && (
-                <div className="max-h-96 overflow-y-auto border rounded-lg">
-          {patientsLoading ? (
-                    <div className="p-4 text-center">
-            <LoadingSpinner />
-                    </div>
-                  ) : patientsData?.items && patientsData.items.length > 0 ? (
-                    <div className="divide-y">
-                      {patientsData.items.map((patient) => (
-                        <div
-                          key={patient.id}
-                          onClick={() => handleSelectPatient(patient)}
-                          className="p-3 hover:bg-accent/50 cursor-pointer transition-colors"
-                        >
-                          <div className="flex items-center space-x-3">
-                            <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
-                              <Users className="h-5 w-5 text-primary" />
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <h4 className="font-medium">{patient.name}</h4>
-                              <div className="text-sm text-muted-foreground">
-                                <p>ID: {patient.id} | 性别: {formatGender(patient.gender)} | 生日: {formatDate(patient.date_of_birth)}</p>
-                                {patient.note && (
-                                  <p className="truncate">备注: {patient.note}</p>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="p-8 text-center text-muted-foreground">
-                      {patientSearchTerm ? '没有找到匹配的患者' : '请输入搜索关键词'}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {!showPatientSearch && (
-                <div className="text-center py-8 text-muted-foreground">
-                  <Users className="h-12 w-12 mx-auto mb-2 opacity-50" />
-                  <p>请点击上方按钮搜索并选择患者</p>
+              {/* 音频预加载进度 */}
+              {isPreloadingAudio && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between text-sm">
+                    <span>音频文件预加载中...</span>
+                    <span>{Math.round(preloadProgress)}%</span>
+                  </div>
+                  <div className="w-full bg-gray-200 rounded-full h-2">
+                    <div 
+                      className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                      style={{ width: `${preloadProgress}%` }}
+                    />
+                  </div>
                 </div>
               )}
             </div>
@@ -433,14 +483,28 @@ const ORConsolePage: React.FC = () => {
         </CardContent>
       </Card>
 
+      {/* 语音控制设置 */}
+      {selectedPatient && (
+        <VoiceControlSettings
+          mode={voiceControlMode}
+          onModeChange={handleVoiceControlModeChange}
+        />
+      )}
+
       {/* 语音控制系统 */}
-      {isPatientLocked && (
+      {isPatientLocked && voiceControlEnabled && voiceControlMode === 'offline' && (
         <div className="space-y-6">
           {/* 现代化语音控制组件 */}
-          {playableCommands?.commands && voiceControlEnabled ? (
+          {playableCommands?.commands ? (
             <ModernVoiceControl
               commands={playableCommands.commands}
-              onPlayCommand={playLocalAudio}
+              onPlayCommand={(commandId, content) => {
+                const command = playableCommands.commands.find(cmd => cmd.command_id === commandId)
+                if (command) {
+                  setPendingCommand(command)
+                  setShowPlaybackConfirm(true)
+                }
+              }}
               onStateChange={(state) => {
                 console.log('🔄 语音控制状态变更:', state)
               }}
@@ -448,133 +512,53 @@ const ORConsolePage: React.FC = () => {
                 console.log('📝 实时转录:', transcript)
               }}
               onCommandPlayed={setLastPlayedCommand}
+              onVoiceLog={(log) => {
+                console.log('📝 语音识别日志:', log)
+                addVoiceLog(log)
+              }}
               wakeWords={['发出指令', '播放指令', '开始指令']}
               enabled={true}
               className="w-full"
             />
           ) : (
-            /* 语音控制启用界面 */
             <Card>
               <CardHeader>
-                <CardTitle className="flex items-center">
-                  <Mic className="h-5 w-5 mr-2" />
-                  智能语音控制系统
-                </CardTitle>
+                <CardTitle>语音控制</CardTitle>
                 <CardDescription>
-                  现代化中文语音识别与指令匹配系统
+                  正在加载可用指令...
                 </CardDescription>
               </CardHeader>
-              <CardContent>
-                <div className="text-center space-y-6">
-                  <div className="p-8 bg-gradient-to-br from-blue-50 to-indigo-100 border border-blue-200 rounded-lg">
-                    <Mic className="h-16 w-16 mx-auto mb-4 text-blue-500" />
-                    <h3 className="text-lg font-medium text-gray-900 mb-2">
-                      准备启用语音控制
-                    </h3>
-                    <p className="text-gray-600 mb-6 max-w-md mx-auto">
-                      系统将使用先进的中文语音识别技术，支持多种方言和智能指令匹配
-                    </p>
-                    <Button
-                      onClick={() => setVoiceControlEnabled(true)}
-                      disabled={!playableCommands?.commands || audioCache.size === 0}
-                      size="lg"
-                      className="w-full max-w-xs"
-                    >
-                      <Mic className="h-5 w-5 mr-2" />
-                      启用语音控制
-                    </Button>
-                  </div>
-                  
-                  {/* 系统准备状态 */}
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <div className="p-4 bg-white border rounded-lg">
-                      <h4 className="font-medium text-gray-900 mb-3">系统状态</h4>
-                      <div className="space-y-2 text-sm">
-                        <div className={`flex items-center ${playableCommands?.commands ? 'text-green-600' : 'text-red-600'}`}>
-                          <span className="mr-2">{playableCommands?.commands ? '✅' : '❌'}</span>
-                          可用指令: {playableCommands?.total_commands || 0} 个
-                        </div>
-                        <div className={`flex items-center ${audioCache.size > 0 ? 'text-green-600' : 'text-red-600'}`}>
-                          <span className="mr-2">{audioCache.size > 0 ? '✅' : '❌'}</span>
-                          音频缓存: {audioCache.size} 个文件
-                        </div>
-                        <div className="flex items-center text-blue-600">
-                          <span className="mr-2">🎤</span>
-                          中文语音识别: 已准备
-                        </div>
-                      </div>
-                    </div>
-                    
-                    <div className="p-4 bg-white border rounded-lg">
-                      <h4 className="font-medium text-gray-900 mb-3">技术特性</h4>
-                      <div className="space-y-2 text-sm text-gray-600">
-                        <div className="flex items-center">
-                          <span className="mr-2">🔊</span>
-                          实时音频波形可视化
-                        </div>
-                        <div className="flex items-center">
-                          <span className="mr-2">🧠</span>
-                          AI智能指令分类
-                        </div>
-                        <div className="flex items-center">
-                          <span className="mr-2">🎯</span>
-                          多级匹配算法
-                        </div>
-                        <div className="flex items-center">
-                          <span className="mr-2">🔒</span>
-                          本地处理，数据安全
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                  
-                  {/* 音频预加载进度 */}
-                  {isPreloadingAudio && (
-                    <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
-                      <div className="flex items-center justify-center mb-2">
-                        <Loader2 className="h-4 w-4 mr-2 animate-spin text-blue-600" />
-                        <span className="text-sm font-medium text-blue-800">
-                          正在预加载音频文件: {preloadProgress}%
-                        </span>
-                      </div>
-                      <div className="w-full bg-blue-200 rounded-full h-2">
-                        <div 
-                          className="bg-blue-600 h-2 rounded-full transition-all duration-300"
-                          style={{ width: `${preloadProgress}%` }}
-                        ></div>
-                      </div>
-                    </div>
-                  )}
-                </div>
+              <CardContent className="flex items-center justify-center py-8">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
               </CardContent>
             </Card>
           )}
         </div>
       )}
 
-      {/* 可用指令列表 */}
-      {selectedPatient && (
+      {/* 手动指令播放 */}
+      {isPatientLocked && playableCommands?.commands && (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center">
               <CommandIcon className="h-5 w-5 mr-2" />
-              可用指令
+              手动播放指令
             </CardTitle>
             <CardDescription>
-              当前患者的可播放指令列表，点击手动播放
+              点击播放按钮手动播放指定指令
             </CardDescription>
           </CardHeader>
           <CardContent>
             {commandsLoading ? (
-              <div className="flex justify-center py-8">
-                <LoadingSpinner />
+              <div className="text-center py-8">
+                <Loader2 className="h-6 w-6 animate-spin mx-auto" />
               </div>
-            ) : playableCommands?.commands && playableCommands.commands.length > 0 ? (
-              <div className="grid gap-3">
+            ) : playableCommands.commands.length > 0 ? (
+              <div className="space-y-3">
                 {playableCommands.commands.map((command) => (
                   <div
                     key={command.command_id}
-                    className="flex items-center justify-between p-3 border rounded-lg hover:bg-accent/50 transition-colors"
+                    className="flex items-center justify-between p-3 border rounded-lg"
                   >
                     <div className="flex-1">
                       <h4 className="font-medium">{command.content}</h4>
@@ -596,6 +580,7 @@ const ORConsolePage: React.FC = () => {
                       variant="outline"
                       size="sm"
                       onClick={() => handleManualPlay(command.command_id)}
+                      disabled={isPlaying}
                     >
                       <Play className="h-4 w-4 mr-2" />
                       播放
@@ -615,65 +600,49 @@ const ORConsolePage: React.FC = () => {
         </Card>
       )}
 
+      {/* 语音识别日志 */}
+      {isPatientLocked && selectedPatient && (
+        <VoiceLogsDisplay patientId={selectedPatient.id} />
+      )}
+
+      {/* 指令播放确认界面 */}
+      {showPlaybackConfirm && pendingCommand && (
+        <CommandPlaybackConfirm
+          command={pendingCommand}
+          onStop={handleStopPlayback}
+          onConfirm={handleConfirmPlayback}
+          isPlaying={isPlaying}
+        />
+      )}
+
       {/* 使用说明 */}
       <Card>
         <CardHeader>
-          <CardTitle>使用说明（现代化中文语音控制）</CardTitle>
+          <CardTitle>使用说明</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="space-y-2 text-sm text-muted-foreground">
             <p><strong>🏥 准备阶段：</strong></p>
             <p>1. 搜索并选择当前手术的患者</p>
             <p>2. 点击"锁定患者"按钮，系统会自动预加载所有音频文件</p>
-            <p>3. 锁定后点击"启用语音控制"按钮</p>
+            <p>3. 在语音控制设置中选择合适的模式</p>
             
-            <p><strong>🎤 中文语音控制流程：</strong></p>
-            <p>4. 点击麦克风按钮开始语音监听</p>
-            <p>5. 系统显示专业音频波形可视化和实时中文转录</p>
-            <p>6. 说出唤醒词：</p>
-            <p className="ml-4 text-xs">• "发出指令" 或 "播放指令" 或 "开始指令"</p>
-            <p>7. 听到提示音后，清晰说出指令内容：</p>
-            <p className="ml-4 text-xs">• "注意呼吸" → 自动匹配"把注意力放在呼吸上"</p>
-            <p className="ml-4 text-xs">• "放松肩膀" → 自动匹配"不要紧张，放松肩膀"</p>
-            <p className="ml-4 text-xs">• "深呼吸" → 自动匹配相关呼吸指令</p>
+            <p><strong>🎤 语音控制流程：</strong></p>
+            <p>4. 启用语音控制后，点击麦克风按钮开始语音监听</p>
+            <p>5. 说出唤醒词："发出指令"、"播放指令"或"开始指令"</p>
+            <p>6. 听到提示音后，清晰说出指令内容</p>
+            <p>7. 系统会显示指令确认界面，给您1秒纠错时间</p>
             
-            <p><strong>🤖 智能处理技术：</strong></p>
-            <p>8. 双重识别系统：</p>
-            <p className="ml-4">• 浏览器原生中文语音识别（实时响应）</p>
-            <p className="ml-4">• AI智能指令分类器（语义理解）</p>
-            <p>9. 分类结果处理：</p>
-            <p className="ml-4">• 确信匹配（95%+）：直接播放指令</p>
-            <p className="ml-4">• 可能匹配（70-95%）：显示候选列表</p>
-            <p className="ml-4">• 不确定（&lt;70%）：提示重新说一遍</p>
+            <p><strong>🎵 手动播放：</strong></p>
+            <p>8. 在手动播放指令区域，点击播放按钮</p>
+            <p>9. 系统会显示指令确认界面，确认后开始播放</p>
             
-            <p><strong>🌊 专业可视化：</strong></p>
-            <p>10. 使用 react-audio-visualize 库提供实时音频波形</p>
-            <p>11. 状态颜色指示：蓝色监听 → 橙色唤醒 → 紫色捕获 → 绿色播放</p>
-            <p>12. 实时中文转录，支持方言和口音识别</p>
-            
-            <p><strong>✨ 技术优势：</strong></p>
-            <p>13. 专门优化的中文语音识别（lang: 'zh-CN'）</p>
-            <p>14. 降噪和回声消除技术提升识别准确率</p>
-            <p>15. 状态机模式确保稳定的交互流程</p>
-            <p>16. 完全前端运行，<strong>数据不离开设备</strong></p>
+            <p><strong>📊 日志记录：</strong></p>
+            <p>10. 所有语音识别和播放操作都会记录在日志中</p>
+            <p>11. 日志每30秒自动上传到后端保存</p>
           </div>
         </CardContent>
       </Card>
-
-      {/* 调试组件 - 临时添加 */}
-      {true && (
-        <Card>
-          <CardHeader>
-            <CardTitle>🐛 语音控制调试</CardTitle>
-            <CardDescription>
-              开发环境专用 - 调试唤醒词检测问题
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <DebugVoiceControl />
-          </CardContent>
-        </Card>
-      )}
     </div>
   )
 }
