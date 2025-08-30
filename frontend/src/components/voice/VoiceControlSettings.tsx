@@ -5,13 +5,13 @@
  */
 
 import React, { useState } from 'react'
-import { Settings, Mic, MicOff, Wifi, WifiOff } from 'lucide-react'
+import { Settings, Mic, MicOff, Wifi, WifiOff, Cpu } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/Card'
 import { Button } from '../ui/Button'
 import { Label } from '../ui/Label'
 import { RadioGroup, RadioGroupItem } from '../ui/RadioGroup'
 
-export type VoiceControlMode = 'none' | 'offline' | 'online'
+export type VoiceControlMode = 'none' | 'offline_kws' | 'online_asr' | 'online_llm'
 
 interface VoiceControlSettingsProps {
   mode: VoiceControlMode
@@ -35,18 +35,25 @@ const VoiceControlSettings: React.FC<VoiceControlSettingsProps> = ({
       color: 'text-gray-500'
     },
     {
-      value: 'offline' as VoiceControlMode,
-      label: '离线语音控制',
-      description: '使用本地语音识别，数据不离开设备',
-      icon: Mic,
-      color: 'text-blue-500'
+      value: 'offline_kws' as VoiceControlMode,
+      label: '离线语音控制 (KWS)',
+      description: '使用拼音匹配模型，数据不离开设备',
+      icon: Cpu,
+      color: 'text-purple-500'
     },
     {
-      value: 'online' as VoiceControlMode,
-      label: '在线语音控制',
-      description: '使用云端语音识别服务（待开发）',
+      value: 'online_asr' as VoiceControlMode,
+      label: '在线语音控制（云端语音识别）',
+      description: '使用云端语音识别服务',
       icon: Wifi,
       color: 'text-green-500'
+    },
+    {
+      value: 'online_llm' as VoiceControlMode,
+      label: '在线语音控制（AI大模型）',
+      description: '使用云端AI大语言模型语义分析服务（待开发）',
+      icon: Mic,
+      color: 'text-blue-500'
     }
   ]
 
@@ -114,26 +121,39 @@ const VoiceControlSettings: React.FC<VoiceControlSettingsProps> = ({
         {/* 详细设置（仅在展开时显示） */}
         {isExpanded && (
           <div className="space-y-4 pt-4 border-t">
-            {mode === 'offline' && (
+            {mode === 'offline_kws' && (
               <div className="space-y-3">
-                <Label className="text-sm font-medium">离线模式设置</Label>
+                <Label className="text-sm font-medium">KWS离线模式设置</Label>
                 <div className="text-xs text-muted-foreground space-y-1">
-                  <p>• 唤醒词：支持自定义中文唤醒词</p>
-                  <p>• 识别语言：中文（简体）</p>
-                  <p>• 隐私保护：所有音频数据在本地处理</p>
-                  <p>• 网络要求：无需网络连接</p>
+                  <p>• 模型：拼音匹配关键词（KWS）</p>
+                  <p>• 唤醒词：支持中文关键词与拼音近似匹配</p>
+                  <p>• 隐私：完全本地处理，数据不离开设备</p>
+                  <p>• 性能：实时音频处理，低延迟</p>
+                  <p>• 网络：无需网络连接</p>
                 </div>
               </div>
             )}
             
-            {mode === 'online' && (
+            {mode === 'online_asr' && (
               <div className="space-y-3">
-                <Label className="text-sm font-medium">在线模式设置</Label>
+                <Label className="text-sm font-medium">云端语音识别设置</Label>
                 <div className="text-xs text-muted-foreground space-y-1">
-                  <p>• 云端识别：使用先进的云端语音识别服务</p>
-                  <p>• 识别精度：更高的识别准确率</p>
-                  <p>• 网络要求：需要稳定的网络连接</p>
-                  <p>• 开发状态：功能正在开发中</p>
+                  <p>• 服务：使用云端语音识别（ASR）</p>
+                  <p>• 精度：更高的识别准确率</p>
+                  <p>• 网络：需要稳定的网络连接</p>
+                  <p>• 注意：音频将发送至云端服务处理</p>
+                </div>
+              </div>
+            )}
+
+            {mode === 'online_llm' && (
+              <div className="space-y-3">
+                <Label className="text-sm font-medium">云端AI大模型设置</Label>
+                <div className="text-xs text-muted-foreground space-y-1">
+                  <p>• 服务：云端大语言模型语义分析</p>
+                  <p>• 能力：语义理解、多轮对话（规划中）</p>
+                  <p>• 网络：需要稳定的网络连接</p>
+                  <p>• 开发状态：功能待开发</p>
                 </div>
               </div>
             )}

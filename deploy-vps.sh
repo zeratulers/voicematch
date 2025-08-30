@@ -72,6 +72,7 @@ fi
 # 创建部署配置文件
 echo "📋 创建部署配置文件..."
 cat > docker-compose.yml << EOF
+---
 version: '3.8'
 
 services:

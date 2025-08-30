@@ -28,6 +28,7 @@ import LoadingSpinner from '../components/ui/LoadingSpinner'
 import type { Patient } from '../types/patient'
 import { formatGender } from '../utils/gender'
 import { ModernVoiceControl } from '../components/voice'
+import KWSVoiceControl from '../components/voice/KWSVoiceControl'
 import VoiceControlSettings, { VoiceControlMode } from '../components/voice/VoiceControlSettings'
 import VoiceLogsDisplay from '../components/voice/VoiceLogsDisplay'
 import CommandPlaybackConfirm from '../components/voice/CommandPlaybackConfirm'
@@ -44,7 +45,7 @@ const ORConsolePage: React.FC = () => {
   const [preloadProgress, setPreloadProgress] = useState(0)
   
   // 语音控制相关状态
-  const [voiceControlMode, setVoiceControlMode] = useState<VoiceControlMode>('offline')
+  const [voiceControlMode, setVoiceControlMode] = useState<VoiceControlMode>('offline_kws')
   const [voiceControlEnabled, setVoiceControlEnabled] = useState(false)
   
   // 指令播放确认界面状态
@@ -286,11 +287,12 @@ const ORConsolePage: React.FC = () => {
     
     if (mode === 'none') {
       setVoiceControlEnabled(false)
-    } else if (mode === 'offline') {
+    } else if (mode === 'offline_kws') {
       setVoiceControlEnabled(true)
-    } else if (mode === 'online') {
-      setVoiceControlEnabled(false)
-      // TODO: 实现在线语音控制
+    } else if (mode === 'online_asr') {
+      setVoiceControlEnabled(true)
+    } else if (mode === 'online_llm') {
+      setVoiceControlEnabled(true)
     }
   }
 
@@ -492,34 +494,88 @@ const ORConsolePage: React.FC = () => {
       )}
 
       {/* 语音控制系统 */}
-      {isPatientLocked && voiceControlEnabled && voiceControlMode === 'offline' && (
+      {isPatientLocked && voiceControlEnabled && (
         <div className="space-y-6">
-          {/* 现代化语音控制组件 */}
+          {/* 语音控制组件 */}
           {playableCommands?.commands ? (
-            <ModernVoiceControl
-              commands={playableCommands.commands}
-              onPlayCommand={(commandId, content) => {
-                const command = playableCommands.commands.find(cmd => cmd.command_id === commandId)
-                if (command) {
-                  setPendingCommand(command)
-                  setShowPlaybackConfirm(true)
-                }
-              }}
-              onStateChange={(state) => {
-                console.log('🔄 语音控制状态变更:', state)
-              }}
-              onTranscriptChange={(transcript) => {
-                console.log('📝 实时转录:', transcript)
-              }}
-              onCommandPlayed={setLastPlayedCommand}
-              onVoiceLog={(log) => {
-                console.log('📝 语音识别日志:', log)
-                addVoiceLog(log)
-              }}
-              wakeWords={['发出指令', '播放指令', '开始指令']}
-              enabled={true}
-              className="w-full"
-            />
+            <>
+              {voiceControlMode === 'online_asr' && (
+                <ModernVoiceControl
+                  commands={playableCommands.commands}
+                  onPlayCommand={(commandId, content) => {
+                    const command = playableCommands.commands.find(cmd => cmd.command_id === commandId)
+                    if (command) {
+                      setPendingCommand(command)
+                      setShowPlaybackConfirm(true)
+                    }
+                  }}
+                  onStateChange={(state) => {
+                    console.log('🔄 语音控制状态变更:', state)
+                  }}
+                  onTranscriptChange={(transcript) => {
+                    console.log('📝 实时转录:', transcript)
+                  }}
+                  onCommandPlayed={setLastPlayedCommand}
+                  onVoiceLog={(log) => {
+                    console.log('📝 语音识别日志:', log)
+                    addVoiceLog(log)
+                  }}
+                  wakeWords={['发出指令', '播放指令', '开始指令']}
+                  enabled={true}
+                  className="w-full"
+                />
+              )}
+              
+              {voiceControlMode === 'offline_kws' && (
+                <KWSVoiceControl
+                  commands={playableCommands.commands}
+                  onPlayCommand={(commandId, content) => {
+                    const command = playableCommands.commands.find(cmd => cmd.command_id === commandId)
+                    if (command) {
+                      setPendingCommand(command)
+                      setShowPlaybackConfirm(true)
+                    }
+                  }}
+                  onStateChange={(state) => {
+                    console.log('🔄 KWS语音控制状态变更:', state)
+                  }}
+                  onKeywordDetected={(keyword, score) => {
+                    console.log(`🎯 检测到关键词: "${keyword}" (置信度: ${(score * 100).toFixed(1)}%)`)
+                  }}
+                  onCommandPlayed={setLastPlayedCommand}
+                  onVoiceLog={(log) => {
+                    console.log('📝 KWS语音识别日志:', log)
+                    // 转换KWS日志格式为标准日志格式
+                    addVoiceLog({
+                      transcript: log.keyword,
+                      confidence: log.score,
+                      status: log.status,
+                      matched_command_id: log.matched_command_id,
+                      matched_command_content: log.matched_command_content,
+                      matched_confidence: log.score,
+                      processing_time_ms: log.processing_time_ms
+                    })
+                  }}
+                  keywords={['小爱同学', '发出指令', '播放指令']}
+                  enabled={true}
+                  className="w-full"
+                />
+              )}
+
+              {voiceControlMode === 'online_llm' && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>在线语音控制（AI大模型）</CardTitle>
+                    <CardDescription>
+                      使用云端AI大语言模型语义分析服务（待开发）
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="text-sm text-muted-foreground">
+                    功能规划中：语义理解、多轮对话、上下文指令解析。
+                  </CardContent>
+                </Card>
+              )}
+            </>
           ) : (
             <Card>
               <CardHeader>
