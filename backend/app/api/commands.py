@@ -4,6 +4,7 @@
 处理指令库的CRUD操作（不绑定特定患者）
 """
 
+from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, desc, or_, case
