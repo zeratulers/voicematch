@@ -65,30 +65,38 @@ def create_mysql_table(mysql_conn, table_name, columns):
     for col in columns:
         name = col['name']
         type_name = col['type'].upper()
-        
-        # 类型映射
-        if 'INT' in type_name:
+        # 更稳健的类型映射与特殊列处理
+        if name in ('created_at', 'updated_at'):
+            mysql_type = 'DATETIME'
+        elif 'INT' in type_name:
+            # 将SQLite的 INTEGER 映射为 MySQL 的 INT
             mysql_type = 'INT'
-        elif 'TEXT' in type_name:
-            mysql_type = 'TEXT'
         elif 'REAL' in type_name:
             mysql_type = 'DOUBLE'
         elif 'BLOB' in type_name:
             mysql_type = 'LONGBLOB'
+        elif 'CHAR' in type_name or 'CLOB' in type_name or 'TEXT' in type_name:
+            # 文本类型
+            if table_name == 'commands' and name == 'id':
+                # commands.id 在SQLite为UUID文本，MySQL用VARCHAR(36)
+                mysql_type = 'VARCHAR(36)'
+            else:
+                mysql_type = 'TEXT'
         else:
             mysql_type = 'TEXT'
-        
-        # 处理主键
+
+        # 主键与自增：仅整数型主键才自增；文本主键不自增
+        pk_suffix = ''
         if col['pk']:
-            mysql_type += ' AUTO_INCREMENT PRIMARY KEY'
-        
-        # 处理NOT NULL
-        if not col['notnull']:
-            mysql_type += ' NULL'
-        else:
-            mysql_type += ' NOT NULL'
-        
-        column_definitions.append(f"`{name}` {mysql_type}")
+            if mysql_type.startswith('INT'):
+                pk_suffix = ' PRIMARY KEY AUTO_INCREMENT'
+            else:
+                pk_suffix = ' PRIMARY KEY'
+
+        # NULL/NOT NULL
+        null_suffix = ' NOT NULL' if col['notnull'] else ' NULL'
+
+        column_definitions.append(f"`{name}` {mysql_type}{pk_suffix}{null_suffix}")
     
     create_sql = f"CREATE TABLE IF NOT EXISTS `{table_name}` (\n"
     create_sql += ",\n".join(column_definitions)
@@ -124,11 +132,21 @@ def migrate_table_data(sqlite_conn, mysql_conn, table_name):
         placeholders = ', '.join(['%s'] * len(columns))
         column_names = ', '.join([f"`{col}`" for col in columns])
         
-        # 插入数据
+        # 插入数据（处理DATETIME字段字符串）
         insert_sql = f"INSERT INTO `{table_name}` ({column_names}) VALUES ({placeholders})"
         
         for row in rows:
-            values = [row[col] for col in columns]
+            values = []
+            for col in columns:
+                v = row[col]
+                if col in ('created_at', 'updated_at') and isinstance(v, str):
+                    # 兼容 "YYYY-MM-DD HH:MM:SS" / 带Z 结尾
+                    try:
+                        if v.endswith('Z'):
+                            v = v.replace('Z', '')
+                    except Exception:
+                        pass
+                values.append(v)
             cursor_mysql.execute(insert_sql, values)
         
         mysql_conn.commit()

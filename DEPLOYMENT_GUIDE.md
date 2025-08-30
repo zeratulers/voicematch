@@ -68,7 +68,7 @@ nano .env
 - `JWT_SECRET_KEY`: 设置强密钥
 - `SECRET_KEY`: 设置强密钥
 
-### 4. 执行数据迁移
+### 4. 执行数据迁移（含自动修复 commands 表与时间戳）
 
 ```bash
 # 启动数据库服务
@@ -77,14 +77,22 @@ make db-reset
 # 等待数据库完全启动（约30秒）
 sleep 30
 
-# 执行数据迁移
+# 执行数据迁移（自动：建表+数据导入）
 make migrate-only
+
+# 如迁移日志中出现：
+#  "创建表 commands 失败: Incorrect column specifier for column 'id'"
+# 说明 SQLite 的 commands.id 为 UUID 文本，已自动改为 MySQL VARCHAR(36) 主键；
+# 迁移脚本已内置修复逻辑。若迁移中断，可再次运行：
+# make migrate-only
 ```
 
 迁移过程将：
 1. 自动创建MySQL表结构
 2. 将SQLite数据导入MySQL
 3. 显示迁移进度和结果
+ 4. 自动将 commands.id 映射为 VARCHAR(36) 主键（UUID）
+ 5. 自动规范 created_at/updated_at 时间戳字符串，兼容 Z 结尾
 
 ### 5. 启动完整服务
 
