@@ -92,9 +92,12 @@ def create_mysql_table(mysql_conn, table_name, columns):
                 pk_suffix = ' PRIMARY KEY AUTO_INCREMENT'
             else:
                 pk_suffix = ' PRIMARY KEY'
-
-        # NULL/NOT NULL
-        null_suffix = ' NOT NULL' if col['notnull'] else ' NULL'
+        
+        # NULL/NOT NULL：主键一律 NOT NULL，避免出现 "PRIMARY KEY NULL" 导致 MySQL 1063 错误
+        if col['pk']:
+            null_suffix = ' NOT NULL'
+        else:
+            null_suffix = ' NOT NULL' if col['notnull'] else ' NULL'
 
         column_definitions.append(f"`{name}` {mysql_type}{pk_suffix}{null_suffix}")
     
