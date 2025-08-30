@@ -5,15 +5,9 @@
 """
 
 from pydantic import BaseModel, Field, ConfigDict
-from typing import Optional, List, TYPE_CHECKING
+from typing import Optional, List
 from datetime import datetime
-
-# 运行时导入以便 Pydantic V2 解析前向引用
-try:
-    from app.schemas.command_variant import CommandVariantWithDialectResponse
-except Exception:
-    # 避免导入时循环或其它错误导致崩溃，稍后通过 model_rebuild 解析
-    CommandVariantWithDialectResponse = None  # type: ignore
+from app.schemas.command_variant import CommandVariantWithDialectResponse
 
 
 class CommandBase(BaseModel):
@@ -75,8 +69,7 @@ class DoctorCommandStats(BaseModel):
     total_patients: int = Field(..., description="患者总数")
     total_assignments: int = Field(..., description="指令分配总数")
 
-# 触发前向引用解析
-try:
-    CommandWithVariantsResponse.model_rebuild()
-except Exception:
-    pass
+# 触发前向引用解析，提供命名空间
+CommandWithVariantsResponse.model_rebuild(types_namespace={
+    'CommandVariantWithDialectResponse': CommandVariantWithDialectResponse
+})
