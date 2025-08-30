@@ -69,7 +69,5 @@ class DoctorCommandStats(BaseModel):
     total_patients: int = Field(..., description="患者总数")
     total_assignments: int = Field(..., description="指令分配总数")
 
-# 触发前向引用解析，提供命名空间
-CommandWithVariantsResponse.model_rebuild(types_namespace={
-    'CommandVariantWithDialectResponse': CommandVariantWithDialectResponse
-})
+# 触发前向引用解析（使用模块命名空间）
+CommandWithVariantsResponse.model_rebuild()
