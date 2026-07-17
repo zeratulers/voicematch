@@ -76,8 +76,9 @@ class ApiClient {
       (response) => response,
       async (error: AxiosError) => {
         const originalRequest = error.config as any
+        const isRefreshCall = (originalRequest?.url || '').includes('/auth/refresh')
 
-        if (error.response?.status === 401 && !originalRequest._retry) {
+        if (error.response?.status === 401 && !originalRequest._retry && !isRefreshCall) {
           originalRequest._retry = true
 
           try {
@@ -88,9 +89,20 @@ class ApiClient {
             }
           } catch (refreshError) {
             this.clearTokens()
-            window.location.href = '/login'
+            if (!window.location.pathname.includes('/login')) {
+              window.location.href = '/login'
+            }
             return Promise.reject(refreshError)
           }
+        }
+
+        // 刷新令牌本身失效：直接清理并跳登录，避免无限重试 /auth/refresh
+        if (error.response?.status === 401 && isRefreshCall) {
+          this.clearTokens()
+          if (!window.location.pathname.includes('/login')) {
+            window.location.href = '/login'
+          }
+          return Promise.reject(error)
         }
 
         // 统一错误提示，兼容422的detail数组
